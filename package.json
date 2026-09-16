@@ -1,0 +1,23 @@
+{
+  "name": "peace-lily-learn-trading",
+  "private": true,
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @workspace/api db:migrate",
+    "db:generate": "pnpm --filter @workspace/api db:generate",
+    "db:studio": "pnpm --filter @workspace/api db:studio"
+  },
+  "postinstall": "pnpm --filter @workspace/api exec prisma generate",
+  "devDependencies": {
+    "turbo": "^2.5.0"
+  }
+}

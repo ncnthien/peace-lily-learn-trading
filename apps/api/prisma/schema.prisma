@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Candle {
+  id        Int    @id @default(autoincrement())
+  symbol    String
+  interval  String
+  openTime  BigInt
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Float
+
+  @@unique([symbol, interval, openTime])
+  @@index([symbol, interval, openTime(sort: Desc)])
+}
+
+model SignalEvaluation {
+  id         Int      @id @default(autoincrement())
+  symbol     String
+  interval   String
+  signal     String
+  price      Float
+  indicators Json
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([symbol, interval, createdAt(sort: Desc)])
+}
+
+model PositionBox {
+  id            String   @id @default(uuid())
+  symbol        String
+  interval      String
+  side          String
+  entryOpenTime BigInt
+  bars          Int
+  entryPrice    Float
+  stopPrice     Float
+  tpPrice       Float
+  createdAt     DateTime @default(now())
+
+  @@index([symbol, interval])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model SRLine {
+  id        String   @id @default(uuid())
+  symbol    String
+  interval  String
+  kind      String
+  price     Float
+  createdAt DateTime @default(now())
+
+  @@index([symbol, interval])
+}
