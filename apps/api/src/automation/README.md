@@ -36,7 +36,8 @@ automation/
 │   └── condition.evaluator.ts     # walks ConditionNode trees
 ├── automation.module.ts
 ├── automation.service.ts           # CRUD on AutomationItem
-└── automation.controller.ts        # HTTP
+├── automation.controller.ts        # HTTP
+└── automation.runner.ts            # @Cron tick — provider → rule engine → action
 ```
 
 ## ConditionNode tree (NCN-27)
@@ -82,6 +83,30 @@ interface EvalContext {
 The same `evaluate(node, ctx)` works for live automation (fresh ticks
 into providers → EvalContext) and backtest (replayed candles → same
 EvalContext shape).
+
+## Runtime loop (NCN-13)
+
+`automation.runner.ts` is the @Cron-decorated service that wires the
+engine together end-to-end:
+
+```
+@Cron('* * * * *') AutomationRunner.onCronTick()
+  └─ runOnce(now)
+       for each enabled AutomationItem:
+         provider.eval → normalize → EvalContext
+         conditionEvaluator.evaluate(item.condition, ctx)
+         if holds: orderExecution.placeOrder(item.action)
+```
+
+The runner is the only place a row in `AutomationItem` becomes an order
+on an account. New provider kinds plug into the same loop — they just
+need to be registered in `automation.module.ts` and the runner will
+pick them up by `input.kind`. Multiple providers in scope for one tick
+will be collected into a single `EvalContext.signals` array so cross-
+provider rules (e.g. "time AND wave direction") work as-is.
+
+Tests drive the runner via `runOnce(now)` — no need to wait for the
+real cron tick.
 
 ## Adding a new Provider
 
