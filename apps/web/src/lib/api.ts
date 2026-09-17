@@ -250,7 +250,10 @@ async function safeErrorMessage(res: Response): Promise<string> {
 }
 
 // ============================================================
-// NCN-12: Automation items client
+// NCN-12 + NCN-27: Automation items client.
+// The condition tree is a single ConditionNode (leaf or composite); see
+// packages/shared for the canonical type. We mirror only the discriminator
+// fields the UI summary needs.
 // ============================================================
 
 export interface AutomationInput {
@@ -258,12 +261,38 @@ export interface AutomationInput {
   [key: string]: unknown;
 }
 
+export type ConditionSource = {
+  providerKind: string;
+  timeframe?: string;
+  symbol?: string;
+};
+
+export type LeafCondition =
+  | { type: 'rsi_above'; threshold: number; source: ConditionSource }
+  | { type: 'rsi_below'; threshold: number; source: ConditionSource }
+  | { type: 'wave_direction'; direction: 'up' | 'down'; source: ConditionSource }
+  | {
+      type: 'wave_contained_in';
+      timeRange: { start: number; end: number };
+      source: ConditionSource;
+    }
+  | {
+      type: 'wave_phase_not';
+      phase: 'forming' | 'developing' | 'exhausting';
+      source: ConditionSource;
+    }
+  | { type: string; [key: string]: unknown };
+
+export type ConditionNode =
+  | LeafCondition
+  | { operator: 'and' | 'or'; children: ConditionNode[] };
+
 export interface AutomationItem {
   id: string;
   accountId: string;
   name: string;
   input: AutomationInput;
-  conditions: unknown[];
+  condition: ConditionNode;
   action: unknown;
   output: unknown;
   status: 'enabled' | 'disabled' | 'paused';

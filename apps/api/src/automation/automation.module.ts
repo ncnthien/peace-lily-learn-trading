@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AutomationController } from './automation.controller.js';
 import { AutomationService } from './automation.service.js';
-import { ConfluenceEvaluator } from './confluence/confluence.evaluator.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { TimeProvider } from './providers/time.provider.js';
+import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
 @Module({
   providers: [
@@ -11,13 +11,13 @@ import { TimeProvider } from './providers/time.provider.js';
     // self-register in their constructors.
     ProviderRegistry,
     TimeProvider,
-    ConfluenceEvaluator,
+    ConditionEvaluator,
     AutomationService,
     AutomationController,
   ],
   exports: [
     ProviderRegistry,
-    ConfluenceEvaluator,
+    ConditionEvaluator,
     AutomationService,
   ],
 })

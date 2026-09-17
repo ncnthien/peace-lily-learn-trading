@@ -7,6 +7,11 @@ import { Button } from '@/components/ui/button';
 import { AccountSelector } from '@/components/account-selector';
 import { useActiveAccountId } from '@/hooks/use-active-account';
 import { useAutomationItems } from '@/hooks/use-automation';
+import type { AutomationItem, ConditionNode } from '@/lib/api';
+
+function isComposite(node: ConditionNode): node is { operator: 'and' | 'or'; children: ConditionNode[] } {
+  return 'operator' in node && 'children' in node;
+}
 
 function statusVariant(
   status: 'enabled' | 'disabled' | 'paused',
@@ -28,6 +33,67 @@ function inputSummary(input: { kind: string; [k: string]: unknown }): string {
   if (input.kind === 'supportResistance')
     return `${String(input.symbol ?? '?')} @ ${String(input.interval ?? '?')} (minTouches ${String(input.minTouches ?? '?')})`;
   return JSON.stringify(input);
+}
+
+/**
+ * Compact, human-readable summary of a ConditionNode tree for the list
+ * view. Composite nodes show their operator + child count; leaves show
+ * type + key params. Anything unrecognised falls back to a stable label
+ * so the UI never blanks out.
+ */
+function conditionSummary(node: ConditionNode): string {
+  if (isComposite(node)) {
+    return `${node.operator.toUpperCase()} of ${node.children.length} condition${node.children.length === 1 ? '' : 's'}`;
+  }
+  const leaf = node as { type?: string; [k: string]: unknown };
+  switch (leaf.type) {
+    case 'rsi_above':
+      return `RSI > ${String(leaf.threshold)}`;
+    case 'rsi_below':
+      return `RSI < ${String(leaf.threshold)}`;
+    case 'wave_direction':
+      return `wave ${String(leaf.direction)}`;
+    case 'wave_contained_in': {
+      const r = leaf.timeRange as { start?: number; end?: number };
+      return `wave in [${String(r.start ?? '?')}–${String(r.end ?? '?')}]`;
+    }
+    case 'wave_phase_not':
+      return `wave ≠ ${String(leaf.phase)}`;
+    case 'legacy_pass':
+      return 'legacy (needs re-author)';
+    default:
+      return `unknown (${String(leaf.type ?? '?')})`;
+  }
+}
+
+interface AutomationRowProps {
+  item: AutomationItem;
+}
+
+function AutomationRow({ item }: AutomationRowProps) {
+  return (
+    <li className="grid items-start gap-3 py-4 md:grid-cols-[1fr,auto,auto,auto]">
+      <div className="min-w-0">
+        <div className="truncate font-medium">{item.name}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {inputSummary(item.input)}
+        </div>
+        <div className="mt-1 truncate text-xs text-muted-foreground">
+          when <span className="font-mono text-foreground/80">{conditionSummary(item.condition)}</span>
+        </div>
+      </div>
+      <Badge
+        variant={statusVariant(item.status)}
+        className={statusClass(item.status)}
+      >
+        {item.status}
+      </Badge>
+      <code className="text-xs text-muted-foreground">{item.input.kind}</code>
+      <Button variant="outline" size="sm" disabled title="Coming in NCN-18">
+        Edit
+      </Button>
+    </li>
+  );
 }
 
 export default function AutomationPage() {
@@ -90,26 +156,7 @@ export default function AutomationPage() {
             ) : (
               <ul className="divide-y divide-border">
                 {items.map((item) => (
-                  <li key={item.id} className="grid items-center gap-3 py-4 md:grid-cols-[1fr,auto,auto,auto]">
-                    <div>
-                      <div className="font-medium">{item.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {inputSummary(item.input)}
-                      </div>
-                    </div>
-                    <Badge
-                      variant={statusVariant(item.status)}
-                      className={statusClass(item.status)}
-                    >
-                      {item.status}
-                    </Badge>
-                    <code className="text-xs text-muted-foreground">
-                      {item.input.kind}
-                    </code>
-                    <Button variant="outline" size="sm" disabled title="Coming in NCN-18">
-                      Edit
-                    </Button>
-                  </li>
+                  <AutomationRow key={item.id} item={item} />
                 ))}
               </ul>
             )}

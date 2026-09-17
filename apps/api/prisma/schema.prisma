@@ -119,7 +119,7 @@ model AutomationItem {
   account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   name       String
   input      Json // AutomationInput (discriminated union, see shared contract)
-  conditions Json // AutomationCondition[] (AND-ed)
+  condition  Json // ConditionNode tree — single root; leaf + composite (see shared contract)
   action     Json // AutomationAction
   output     Json // AutomationOutput
   status     String   @default("enabled") // 'enabled' | 'disabled' | 'paused'

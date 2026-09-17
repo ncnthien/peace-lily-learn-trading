@@ -7,8 +7,10 @@ import type {
   AutomationInput,
   AutomationItem,
   AutomationItemStatus,
+  ConditionNode,
 } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 
 export interface CreateAutomationInput {
@@ -16,8 +18,11 @@ export interface CreateAutomationInput {
   name: string;
   /** Raw input config (will be validated by the matching Provider) */
   input: AutomationInput;
-  /** Stored verbatim — condition evaluation is the engine's job (NCN-17) */
-  conditions?: unknown[];
+  /**
+   * Condition tree walked by ConditionEvaluator (NCN-27). A bare leaf is
+   * valid; composite nodes AND/OR over nested children.
+   */
+  condition: ConditionNode;
   action: unknown;
   output?: unknown;
   status?: AutomationItemStatus;
@@ -26,7 +31,7 @@ export interface CreateAutomationInput {
 export interface UpdateAutomationInput {
   name?: string;
   input?: AutomationInput;
-  conditions?: unknown[];
+  condition?: ConditionNode;
   action?: unknown;
   output?: unknown;
   status?: AutomationItemStatus;
@@ -37,7 +42,7 @@ interface AutomationRow {
   accountId: string;
   name: string;
   input: unknown;
-  conditions: unknown;
+  condition: unknown;
   action: unknown;
   output: unknown;
   status: string;
@@ -50,6 +55,7 @@ export class AutomationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly providers: ProviderRegistry,
+    private readonly conditionEvaluator: ConditionEvaluator,
   ) {}
 
   /** List automation items, optionally filtered by account. */
@@ -69,17 +75,22 @@ export class AutomationService {
 
   /**
    * Create an automation item. Validates the input config against the
-   * matching Provider before persisting. Throws BadRequest if the kind is
-   * unknown or the config is invalid.
+   * matching Provider, and validates the condition tree shape against the
+   * ConditionEvaluator before persisting. Throws BadRequest on either
+   * failure.
    */
   async create(input: CreateAutomationInput): Promise<AutomationItem> {
     const validatedInput = this.validateInput(input.input);
+    const validatedCondition = this.validateCondition(input.condition);
     const created = await this.prisma.automationItem.create({
       data: {
         accountId: input.accountId,
         name: input.name,
         input: validatedInput,
-        conditions: (input.conditions ?? []) as object,
+        // Cast to Prisma's InputJsonValue — the strict ConditionSource
+        // discriminated union has no index signature, but JSON shape
+        // matches at runtime (assertShape above already validated it).
+        condition: validatedCondition as unknown as object,
         action: input.action as object,
         output: (input.output ?? { kind: 'none' }) as object,
         status: input.status ?? 'enabled',
@@ -92,7 +103,7 @@ export class AutomationService {
     const data: Record<string, unknown> = {};
     if (patch.name !== undefined) data.name = patch.name;
     if (patch.input !== undefined) data.input = this.validateInput(patch.input);
-    if (patch.conditions !== undefined) data.conditions = patch.conditions;
+    if (patch.condition !== undefined) data.condition = this.validateCondition(patch.condition);
     if (patch.action !== undefined) data.action = patch.action;
     if (patch.output !== undefined) data.output = patch.output;
     if (patch.status !== undefined) data.status = patch.status;
@@ -128,13 +139,29 @@ export class AutomationService {
     return { kind: input.kind, ...params } as AutomationInput;
   }
 
+  /**
+   * Validate the condition tree shape. The ConditionEvaluator doesn't
+   * throw on bad shapes — it fails closed (returns false) — so the API
+   * layer needs a separate shape check to surface malformed trees as
+   * 400 Bad Request instead of silently failing at evaluation time.
+   */
+  private validateCondition(condition: ConditionNode): ConditionNode {
+    try {
+      this.conditionEvaluator.assertShape(condition);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'invalid condition tree';
+      throw new BadRequestException(`condition: ${message}`);
+    }
+    return condition;
+  }
+
   private toDto(row: AutomationRow): AutomationItem {
     return {
       id: row.id,
       accountId: row.accountId,
       name: row.name,
       input: row.input as AutomationItem['input'],
-      conditions: row.conditions as AutomationItem['conditions'],
+      condition: row.condition as AutomationItem['condition'],
       action: row.action as AutomationItem['action'],
       output: row.output as AutomationItem['output'],
       status: row.status as AutomationItemStatus,

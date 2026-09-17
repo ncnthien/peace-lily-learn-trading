@@ -217,22 +217,77 @@ export type AutomationInput =
     }
   | { kind: 'time'; cron: string };
 
-export const AutomationConditionOperator = {
-  GT: '>',
-  LT: '<',
-  GTE: '>=',
-  LTE: '<=',
-  EQ: '==',
-  NEQ: '!=',
-} as const;
-export type AutomationConditionOperator =
-  (typeof AutomationConditionOperator)[keyof typeof AutomationConditionOperator];
+// ============================================================
+// NCN-27: Condition tree — single ConditionNode JSON-serializable
+// expression walked by the rule engine. Replaces the flat
+// `AutomationCondition[]` (NCN-12) and the `ConfluenceRule` predicate
+// composition. The same evaluate() is used by live automation and
+// backtest, so any context-aware comparison (RSI threshold, wave
+// direction/phase, time-range containment) is expressed here.
+// ============================================================
 
-/** Single predicate over a field exposed by the input provider, e.g. `rsi.value` */
-export interface AutomationCondition {
-  field: string;
-  operator: AutomationConditionOperator;
-  value: number | string | boolean;
+/**
+ * Identifies which provider output a leaf should be evaluated against.
+ * Matches a NormalizedSignal (providerKind + optional timeframe + symbol)
+ * or a numeric indicator at the same coordinates.
+ */
+export interface ConditionSource {
+  providerKind: string;
+  timeframe?: string;
+  symbol?: string;
+}
+
+/**
+ * Atomic condition checked against one provider's output. Each leaf
+ * carries its own `source` so different leaves can target different
+ * providers / timeframes / symbols within a single tree.
+ */
+export type LeafCondition =
+  /** RSI value (looked up from EvalContext.indicators) is strictly greater than `threshold` */
+  | { type: 'rsi_above'; threshold: number; source: ConditionSource }
+  /** RSI value is strictly less than `threshold` */
+  | { type: 'rsi_below'; threshold: number; source: ConditionSource }
+  /** Matching NormalizedSignal.direction equals `direction` */
+  | { type: 'wave_direction'; direction: AutomationDirection; source: ConditionSource }
+  /** Matching NormalizedSignal.timeRange is fully contained inside `timeRange` */
+  | { type: 'wave_contained_in'; timeRange: { start: number; end: number }; source: ConditionSource }
+  /** Matching NormalizedSignal.phase is NOT equal to `phase` */
+  | { type: 'wave_phase_not'; phase: AutomationPhase; source: ConditionSource };
+
+/** Boolean combination of child nodes — recursive */
+export interface CompositeCondition {
+  operator: 'and' | 'or';
+  children: ConditionNode[];
+}
+
+/** Any node in the condition tree. JSON-serializable; no functions or refs. */
+export type ConditionNode = LeafCondition | CompositeCondition;
+
+/**
+ * Per-evaluation context passed to ConditionEvaluator.evaluate(). Carries
+ * everything the leaves need to look up — same shape for live runs and
+ * backtest, so the engine is reusable.
+ */
+export interface EvalContext {
+  /** All normalized signals currently in scope */
+  signals: NormalizedSignal[];
+  /**
+   * Numeric indicator values keyed by `${providerKind}:${timeframe}:${symbol}`
+   * (any segment may be empty string when omitted in the source).
+   * RSI leaves read from here via their source coordinates.
+   */
+  indicators?: Record<string, number | null>;
+  /** Current epoch ms — used by time-relative leaves */
+  now: number;
+}
+
+/**
+ * Build the canonical lookup key for an indicator (e.g. RSI) value from a
+ * ConditionSource. Empty segments stay in the key so that `{}` and
+ * `{providerKind: 'foo'}` don't collide with `{providerKind: 'foo:'}`.
+ */
+export function indicatorKey(source: ConditionSource): string {
+  return `${source.providerKind}:${source.timeframe ?? ''}:${source.symbol ?? ''}`;
 }
 
 /** Order placed through the Order/Execution abstraction when the item triggers */
@@ -256,14 +311,18 @@ export type AutomationItemStatus =
 /** Runtime array of allowed status values; useful for validation. */
 export const AUTOMATION_STATUSES = Object.values(AutomationItemStatus);
 
-/** User-configurable automation: input → conditions (AND) → action + output */
+/** User-configurable automation: input → condition tree → action + output */
 export interface AutomationItem {
   id: string;
   accountId: string;
   name: string;
   input: AutomationInput;
-  /** All conditions must hold (AND) for the item to trigger */
-  conditions: AutomationCondition[];
+  /**
+   * Condition tree evaluated against an EvalContext. The rule engine
+   * walks this recursively; AND/OR composition is expressed inline
+   * via CompositeCondition (NCN-27).
+   */
+  condition: ConditionNode;
   action: AutomationAction;
   output: AutomationOutput;
   status: AutomationItemStatus;
@@ -282,9 +341,9 @@ export type AutomationDirection = 'up' | 'down';
 
 /**
  * Provider-agnostic signal shape produced by the Normalizer layer.
- * Every provider's raw output is converted to this so the Confluence layer
- * can compare signals from different sources without knowing how each was
- * produced.
+ * Every provider's raw output is converted to this so leaves in the
+ * ConditionNode tree can match signals from different sources without
+ * knowing how each was produced.
  *
  * See NCN-12: Provider → Normalizer → Confluence architecture.
  */
@@ -296,37 +355,6 @@ export interface NormalizedSignal {
   timeRange: { start: number; end: number };
   /** Where the signal came from. providerKind matches a registered Provider.kind. */
   source: { providerKind: string; timeframe?: string; symbol?: string };
-}
-
-/**
- * Single predicate in a confluence rule. Matches a normalized signal if:
- *   - source.providerKind equals providerKind, AND
- *   - degree matches (if specified), AND
- *   - direction matches (if specified).
- *
- * Used by both peer comparison (same degree) and containment (different
- * degrees) — the rule composer doesn't care which mode is intended; the
- * predicates describe what to match.
- */
-export interface ConfluencePredicate {
-  providerKind: string;
-  degree?: AutomationDegree;
-  direction?: AutomationDirection;
-}
-
-/**
- * Boolean combination of multiple predicates over a set of normalized
- * signals. evaluator returns true when the rule holds.
- *
- * Example — AND over (RSI up at 1h, EMA up at 4h):
- *   { operator: 'and', predicates: [
- *     { providerKind: 'rsiEmaWave', degree: 'micro', direction: 'up' },
- *     { providerKind: 'rsiEmaWave', degree: 'macro', direction: 'up' }
- *   ]}
- */
-export interface ConfluenceRule {
-  operator: 'and' | 'or';
-  predicates: ConfluencePredicate[];
 }
 
 export interface RsiResult {
