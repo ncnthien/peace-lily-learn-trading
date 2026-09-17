@@ -2,18 +2,48 @@
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
-import type { CandleWithIndicators, Timeframe } from '@workspace/shared';
-import {
-  fetchIndicatorCandles,
-  fetchLatestSignal,
-  fetchSrLevels,
-} from '@/lib/api';
+import type { CandleWithIndicators, SignalDecision, SupportResistanceResult, Timeframe } from '@workspace/shared';
+import { apiGet } from '@/lib/api';
 import { loadSavedView } from '@/lib/view-state';
 
 const SYMBOL = 'BTCUSDT';
 const REFRESH_MS = 30_000;
 const INITIAL_CANDLES = 500;
 const OLDER_PAGE_SIZE = 1000;
+
+// ----- GET fetchers (local to the hooks that use them) -----
+
+export async function fetchIndicatorCandles(
+  symbol: string,
+  interval: Timeframe,
+  limit = 200,
+  endTime?: number,
+): Promise<CandleWithIndicators[]> {
+  const params = new URLSearchParams({ symbol, interval, limit: String(limit) });
+  if (endTime !== undefined) params.set('endTime', String(endTime));
+  return apiGet<CandleWithIndicators[]>(`/indicators/candles?${params}`);
+}
+
+export async function fetchLatestSignal(
+  symbol: string,
+  interval: Timeframe,
+  limit = 200,
+): Promise<SignalDecision> {
+  return apiGet<SignalDecision>(
+    `/signals/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+  );
+}
+
+export async function fetchSrLevels(
+  symbol: string,
+  interval: Timeframe,
+): Promise<SupportResistanceResult> {
+  return apiGet<SupportResistanceResult>(
+    `/indicators/levels?symbol=${symbol}&interval=${interval}`,
+  );
+}
+
+// ----- Hooks -----
 
 export interface KlinesPage {
   endTime?: number;

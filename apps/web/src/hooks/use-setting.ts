@@ -2,7 +2,16 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
-import { fetchSetting, updateSetting } from '@/lib/api';
+import { apiGet, apiPut } from '@/lib/api';
+
+// ----- GET fetcher (local to this hook) -----
+
+export async function fetchSetting<T>(key: string): Promise<T | null> {
+  const data = await apiGet<{ value: T | null }>(`/settings/${key}`);
+  return data.value;
+}
+
+// ----- Hook -----
 
 export interface ChartSettings {
   showSr: boolean;
@@ -27,7 +36,7 @@ export function useChartSettings() {
     const current = queryClient.getQueryData<ChartSettings>(queryKey) ?? DEFAULT_CHART_SETTINGS;
     const next = { ...current, showSr: !current.showSr };
     queryClient.setQueryData(queryKey, next);
-    void updateSetting('chart', next);
+    void apiPut('/settings/chart', { value: next });
   }, [queryClient, queryKey]);
 
   return { settings: query.data ?? DEFAULT_CHART_SETTINGS, toggleSr };
