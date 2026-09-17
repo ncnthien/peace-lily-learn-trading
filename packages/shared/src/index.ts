@@ -71,6 +71,8 @@ export type AccountStatus = (typeof AccountStatus)[keyof typeof AccountStatus];
 /** Trading account — real (broker/exchange) or demo (paper money) */
 export interface Account {
   id: string;
+  /** Display name (required, unique-per-user conceptually but not enforced at DB level) */
+  name: string;
   type: AccountType;
   /** Quote-currency balance available for trading */
   balance: number;
