@@ -172,3 +172,79 @@ export async function fetchLatestSignal(
   if (!res.ok) throw new Error(`API error ${res.status}`);
   return (await res.json()) as SignalDecision;
 }
+
+// ============================================================
+// NCN-8: Accounts CRUD client
+// ============================================================
+
+export interface AccountRecord {
+  id: string;
+  name: string;
+  type: 'real' | 'demo';
+  balance: number;
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchAccounts(filter?: { type?: 'real' | 'demo' }): Promise<AccountRecord[]> {
+  const params = new URLSearchParams();
+  if (filter?.type !== undefined) params.set('type', filter.type);
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/accounts${qs !== '' ? `?${qs}` : ''}`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return (await res.json()) as AccountRecord[];
+}
+
+export async function createAccount(payload: {
+  name: string;
+  type: 'real' | 'demo';
+  balance?: number;
+}): Promise<AccountRecord> {
+  const res = await fetch(`${API_URL}/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const message = await safeErrorMessage(res);
+    throw new Error(message);
+  }
+  return (await res.json()) as AccountRecord;
+}
+
+export async function updateAccount(
+  id: string,
+  patch: { name?: string; status?: 'active' | 'disabled' },
+): Promise<AccountRecord> {
+  const res = await fetch(`${API_URL}/accounts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const message = await safeErrorMessage(res);
+    throw new Error(message);
+  }
+  return (await res.json()) as AccountRecord;
+}
+
+export async function deleteAccount(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/accounts/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const message = await safeErrorMessage(res);
+    throw new Error(message);
+  }
+}
+
+async function safeErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { message?: string | string[] };
+    if (Array.isArray(body.message)) return body.message.join(', ');
+    return body.message ?? `API error ${res.status}`;
+  } catch {
+    return `API error ${res.status}`;
+  }
+}
