@@ -10,6 +10,7 @@ import {
 } from '@/hooks/use-accounts';
 
 type FilterType = 'all' | 'real' | 'demo';
+type AccountType = 'real' | 'demo';
 
 const inputBase =
   'w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-slate-400 focus:outline-none';
@@ -47,6 +48,7 @@ function errorMessage(err: unknown): string {
 
 export default function AccountsPage() {
   const [filter, setFilter] = useState<FilterType>('all');
+  const [openForm, setOpenForm] = useState<AccountType | null>(null);
   const filterArg = filter === 'all' ? undefined : { type: filter };
   const {
     accounts,
@@ -80,12 +82,24 @@ export default function AccountsPage() {
           <FilterTabs value={filter} onChange={setFilter} />
         </header>
 
-        <section className="mb-6 rounded-lg border border-slate-800 bg-slate-900 p-5">
-          <h2 className="mb-4 text-sm font-semibold text-slate-200">New account</h2>
-          <CreateForm
-            onSubmit={create}
+        <section className="mb-6 grid gap-3 sm:grid-cols-2">
+          <CreateCta
+            type="demo"
+            open={openForm === 'demo'}
+            onOpen={() => setOpenForm('demo')}
+            onClose={() => setOpenForm(null)}
+            onCreate={create}
             isSubmitting={isCreating}
-            error={createError}
+            error={openForm === 'demo' ? createError : null}
+          />
+          <CreateCta
+            type="real"
+            open={openForm === 'real'}
+            onOpen={() => setOpenForm('real')}
+            onClose={() => setOpenForm(null)}
+            onCreate={create}
+            isSubmitting={isCreating}
+            error={openForm === 'real' ? createError : null}
           />
         </section>
 
@@ -151,17 +165,83 @@ function FilterTabs({ value, onChange }: { value: FilterType; onChange: (v: Filt
   );
 }
 
-function CreateForm({
-  onSubmit,
+function CreateCta({
+  type,
+  open,
+  onOpen,
+  onClose,
+  onCreate,
   isSubmitting,
   error,
 }: {
-  onSubmit: (draft: CreateAccountDraft) => Promise<unknown>;
+  type: AccountType;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onCreate: (draft: CreateAccountDraft) => Promise<unknown>;
+  isSubmitting: boolean;
+  error: unknown;
+}) {
+  const label = type === 'demo' ? 'Create a demo account' : 'Create a real account';
+  const description =
+    type === 'demo'
+      ? 'Paper-money account — fills instantly via the mock broker.'
+      : 'Live-broker account — orders go through the platform API.';
+
+  return (
+    <div
+      className={`rounded-lg border ${
+        type === 'demo' ? 'border-purple-500/40 bg-purple-500/5' : 'border-blue-500/40 bg-blue-500/5'
+      } p-4 transition-colors`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className={`text-sm font-semibold ${type === 'demo' ? 'text-purple-200' : 'text-blue-200'}`}>
+            {label}
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-400">{description}</p>
+        </div>
+        {!open && (
+          <button
+            onClick={onOpen}
+            className={`shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              type === 'demo'
+                ? 'bg-purple-500/20 text-purple-100 hover:bg-purple-500/30'
+                : 'bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+            }`}
+          >
+            + New
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <CreateForm
+          type={type}
+          onCreate={onCreate}
+          onCancel={onClose}
+          isSubmitting={isSubmitting}
+          error={error}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateForm({
+  type,
+  onCreate,
+  onCancel,
+  isSubmitting,
+  error,
+}: {
+  type: AccountType;
+  onCreate: (draft: CreateAccountDraft) => Promise<unknown>;
+  onCancel: () => void;
   isSubmitting: boolean;
   error: unknown;
 }) {
   const [name, setName] = useState('');
-  const [type, setType] = useState<'real' | 'demo'>('demo');
   const [balance, setBalance] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -174,51 +254,37 @@ function CreateForm({
       if (Number.isFinite(n)) draft.balance = n;
     }
     try {
-      await onSubmit(draft);
+      await onCreate(draft);
       setName('');
       setBalance('');
-      setType('demo');
+      onCancel();
     } catch {
       // error surfaced via `error` prop
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-[1fr,160px,160px,auto]">
+    <form onSubmit={handleSubmit} className="mt-3 grid gap-3 md:grid-cols-[1fr,160px,auto]">
       <div>
-        <label className={labelBase} htmlFor="new-name">
+        <label className={labelBase} htmlFor={`new-${type}-name`}>
           Name
         </label>
         <input
-          id="new-name"
+          id={`new-${type}-name`}
           type="text"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Main Demo"
+          placeholder={type === 'demo' ? 'e.g. Main Demo' : 'e.g. Binance Spot'}
           className={inputBase}
         />
       </div>
       <div>
-        <label className={labelBase} htmlFor="new-type">
-          Type
-        </label>
-        <select
-          id="new-type"
-          value={type}
-          onChange={(e) => setType(e.target.value as 'real' | 'demo')}
-          className={inputBase}
-        >
-          <option value="demo">demo</option>
-          <option value="real">real</option>
-        </select>
-      </div>
-      <div>
-        <label className={labelBase} htmlFor="new-balance">
+        <label className={labelBase} htmlFor={`new-${type}-balance`}>
           Initial balance
         </label>
         <input
-          id="new-balance"
+          id={`new-${type}-balance`}
           type="number"
           step="any"
           value={balance}
@@ -227,13 +293,16 @@ function CreateForm({
           className={inputBase}
         />
       </div>
-      <div className="flex items-end">
+      <div className="flex items-end gap-2">
         <button type="submit" disabled={isSubmitting || name.trim().length === 0} className={btnPrimary}>
           {isSubmitting ? 'Creating…' : 'Create'}
         </button>
+        <button type="button" onClick={onCancel} disabled={isSubmitting} className={btnSecondary}>
+          Cancel
+        </button>
       </div>
       {error !== null && error !== undefined && (
-        <p className="md:col-span-4 text-sm text-red-400">{errorMessage(error)}</p>
+        <p className="md:col-span-3 text-sm text-red-400">{errorMessage(error)}</p>
       )}
     </form>
   );
@@ -369,7 +438,7 @@ function EmptyState({ filter }: { filter: FilterType }) {
   return (
     <div className="flex h-32 flex-col items-center justify-center gap-1 text-slate-500">
       <p className="text-sm">No {label} yet.</p>
-      <p className="text-xs">Use the form above to create one.</p>
+      <p className="text-xs">Use one of the buttons above to create one.</p>
     </div>
   );
 }
