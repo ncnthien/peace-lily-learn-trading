@@ -51,6 +51,22 @@ export interface SupportResistanceResult {
 }
 
 // ============================================================
+// NCN-6: Market Data abstraction — real-time price tick contract.
+// Consumed by Automation inputs (S/R touch, wave detection) and
+// PnL mark-to-market. The MarketDataSource interface itself lives
+// in apps/api (NestJS DI concern); the data shape is shared.
+// ============================================================
+
+/** Real-time price update emitted by a MarketDataSource subscription */
+export interface PriceTick {
+  symbol: string;
+  /** Latest trade / mid price */
+  price: number;
+  /** Epoch milliseconds when the source observed the price */
+  timestamp: number;
+}
+
+// ============================================================
 // NCN-5: Core domain schema
 // Contract-only — consumed by the Account, PnL and Automation
 // modules. Implementation comes with those epics.
