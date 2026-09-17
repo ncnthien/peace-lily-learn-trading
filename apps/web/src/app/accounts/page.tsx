@@ -403,7 +403,7 @@ function AccountRow({
       <div>
         <div className="font-medium">{account.name}</div>
         <div className="text-xs text-muted-foreground">
-          Balance ${formatBalance(account.balance)} · Created {formatDate(account.createdAt)}
+          Balance <span className="tabular-nums">${formatBalance(account.balance)}</span> · Created {formatDate(account.createdAt)}
         </div>
       </div>
       <div>
