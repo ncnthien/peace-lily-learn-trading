@@ -12,6 +12,7 @@ import {
 import type {
   AutomationInput,
   AutomationItemStatus,
+  ConditionNode,
 } from '@workspace/shared';
 import {
   AUTOMATION_STATUSES,
@@ -73,7 +74,7 @@ export class AutomationController {
       accountId?: unknown;
       name?: unknown;
       input?: unknown;
-      conditions?: unknown[];
+      condition?: unknown;
       action?: unknown;
       output?: unknown;
       status?: unknown;
@@ -82,6 +83,9 @@ export class AutomationController {
     if (body.input === undefined) {
       throw new BadRequestException('input is required');
     }
+    if (body.condition === undefined) {
+      throw new BadRequestException('condition is required');
+    }
     if (body.action === undefined) {
       throw new BadRequestException('action is required');
     }
@@ -89,8 +93,8 @@ export class AutomationController {
       accountId: requireString(body.accountId, 'accountId'),
       name: requireString(body.name, 'name'),
       input: body.input as AutomationInput,
+      condition: body.condition as ConditionNode,
       action: body.action,
-      conditions: body.conditions,
       output: body.output,
       status: optionalStatus(body.status),
     };
@@ -104,7 +108,7 @@ export class AutomationController {
     body: {
       name?: unknown;
       input?: unknown;
-      conditions?: unknown[];
+      condition?: unknown;
       action?: unknown;
       output?: unknown;
       status?: unknown;
@@ -113,7 +117,7 @@ export class AutomationController {
     const patch: UpdateAutomationInput = {};
     if (body.name !== undefined) patch.name = requireString(body.name, 'name');
     if (body.input !== undefined) patch.input = body.input as AutomationInput;
-    if (body.conditions !== undefined) patch.conditions = body.conditions;
+    if (body.condition !== undefined) patch.condition = body.condition as ConditionNode;
     if (body.action !== undefined) patch.action = body.action;
     if (body.output !== undefined) patch.output = body.output;
     if (body.status !== undefined) patch.status = requireStatus(body.status);

@@ -3,13 +3,14 @@ import { AutomationItemStatus } from '@workspace/shared';
 import { AutomationService } from './automation.service.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { TimeProvider } from './providers/time.provider.js';
+import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
 interface MockAutomationRow {
   id: string;
   accountId: string;
   name: string;
   input: unknown;
-  conditions: unknown;
+  condition: unknown;
   action: unknown;
   output: unknown;
   status: string;
@@ -24,7 +25,11 @@ function makeRow(overrides: Partial<MockAutomationRow> = {}): MockAutomationRow 
     accountId: overrides.accountId ?? 'acc-1',
     name: overrides.name ?? 'Test Item',
     input: overrides.input ?? { kind: 'time', cron: '* * * * *' },
-    conditions: overrides.conditions ?? [],
+    condition: overrides.condition ?? {
+      type: 'wave_direction',
+      direction: 'up',
+      source: { providerKind: 'rsiEmaWave' },
+    },
     action: overrides.action ?? { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
     output: overrides.output ?? { kind: 'none' },
     status: overrides.status ?? AutomationItemStatus.ENABLED,
@@ -57,7 +62,7 @@ function makePrismaMock(rows: MockAutomationRow[]) {
           accountId: args.data.accountId,
           name: args.data.name,
           input: args.data.input,
-          conditions: args.data.conditions,
+          condition: args.data.condition,
           action: args.data.action,
           output: args.data.output,
           status: args.data.status ?? AutomationItemStatus.ENABLED,
@@ -95,16 +100,23 @@ function makePrismaMock(rows: MockAutomationRow[]) {
 describe('AutomationService', () => {
   let registry: ProviderRegistry;
   let prisma: ReturnType<typeof makePrismaMock>;
+  let evaluator: ConditionEvaluator;
   let service: AutomationService;
+
+  function buildService(): void {
+    service = new AutomationService(
+      prisma as unknown as ConstructorParameters<typeof AutomationService>[0],
+      registry,
+      evaluator,
+    );
+  }
 
   beforeEach(() => {
     registry = new ProviderRegistry();
     new TimeProvider(registry); // self-registers as 'time'
+    evaluator = new ConditionEvaluator();
     prisma = makePrismaMock([makeRow()]);
-    service = new AutomationService(
-      prisma as unknown as ConstructorParameters<typeof AutomationService>[0],
-      registry,
-    );
+    buildService();
   });
 
   describe('list', () => {
@@ -113,10 +125,7 @@ describe('AutomationService', () => {
         makeRow({ id: 'a', accountId: 'acc-1' }),
         makeRow({ id: 'b', accountId: 'acc-2' }),
       ]);
-      service = new AutomationService(
-        prisma as unknown as ConstructorParameters<typeof AutomationService>[0],
-        registry,
-      );
+      buildService();
       const result = await service.list();
       expect(result.map((r) => r.id).sort()).toEqual(['a', 'b']);
     });
@@ -151,11 +160,21 @@ describe('AutomationService', () => {
         accountId: 'acc-1',
         name: 'My Rule',
         input: { kind: 'time', cron: '*/5 * * * *' },
+        condition: {
+          type: 'wave_direction',
+          direction: 'up',
+          source: { providerKind: 'rsiEmaWave' },
+        },
         action: { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
       });
       expect(result.name).toBe('My Rule');
       expect(result.accountId).toBe('acc-1');
       expect(result.input).toEqual({ kind: 'time', cron: '*/5 * * * *' });
+      expect(result.condition).toEqual({
+        type: 'wave_direction',
+        direction: 'up',
+        source: { providerKind: 'rsiEmaWave' },
+      });
     });
 
     it('rejects an unknown input kind', async () => {
@@ -164,6 +183,11 @@ describe('AutomationService', () => {
           accountId: 'acc-1',
           name: 'X',
           input: { kind: 'unknown' },
+          condition: {
+            type: 'wave_direction',
+            direction: 'up',
+            source: { providerKind: 'rsiEmaWave' },
+          },
           action: { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -175,6 +199,24 @@ describe('AutomationService', () => {
           accountId: 'acc-1',
           name: 'X',
           input: { kind: 'time', cron: 'not-a-cron' },
+          condition: {
+            type: 'wave_direction',
+            direction: 'up',
+            source: { providerKind: 'rsiEmaWave' },
+          },
+          action: { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a malformed condition tree', async () => {
+      await expect(
+        service.create({
+          accountId: 'acc-1',
+          name: 'X',
+          input: { kind: 'time', cron: '*/5 * * * *' },
+          // Bad leaf: missing `direction`
+          condition: { type: 'wave_direction', source: { providerKind: 'rsiEmaWave' } } as never,
           action: { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -187,6 +229,26 @@ describe('AutomationService', () => {
         input: { kind: 'time', cron: '0 0 * * *' },
       });
       expect(result.input).toEqual({ kind: 'time', cron: '0 0 * * *' });
+    });
+
+    it('updates the condition tree when provided', async () => {
+      const next = {
+        operator: 'and' as const,
+        children: [
+          { type: 'rsi_above' as const, threshold: 50, source: { providerKind: 'rsiEmaWave' } },
+          { type: 'wave_direction' as const, direction: 'up', source: { providerKind: 'rsiEmaWave' } },
+        ],
+      };
+      const result = await service.update('auto-1', { condition: next });
+      expect(result.condition).toEqual(next);
+    });
+
+    it('rejects a malformed condition tree on update', async () => {
+      await expect(
+        service.update('auto-1', {
+          condition: { type: 'rsi_above', threshold: 'oops', source: { providerKind: 'rsiEmaWave' } } as never,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('throws NotFound when the item does not exist', async () => {
