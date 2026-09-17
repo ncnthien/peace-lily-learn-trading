@@ -8,19 +8,30 @@ import {
   type UpdateAccountPatch,
   type AccountRecord,
 } from '@/hooks/use-accounts';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type FilterType = 'all' | 'real' | 'demo';
 type AccountType = 'real' | 'demo';
-
-const inputBase =
-  'w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-slate-400 focus:outline-none';
-const labelBase = 'block text-xs font-medium uppercase tracking-wider text-slate-400';
-const btnPrimary =
-  'rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed';
-const btnSecondary =
-  'rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed';
-const btnDanger =
-  'rounded-md bg-red-500/15 px-3 py-1.5 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed';
 
 function formatBalance(n: number): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -28,18 +39,6 @@ function formatBalance(n: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
-}
-
-function statusBadgeClass(status: AccountRecord['status']): string {
-  return status === 'active'
-    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-    : 'bg-slate-500/15 text-slate-300 border-slate-500/40';
-}
-
-function typeBadgeClass(type: AccountRecord['type']): string {
-  return type === 'demo'
-    ? 'bg-purple-500/15 text-purple-300 border-purple-500/40'
-    : 'bg-blue-500/15 text-blue-300 border-blue-500/40';
 }
 
 function errorMessage(err: unknown): string {
@@ -64,25 +63,25 @@ export default function AccountsPage() {
   } = useAccounts(filterArg);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-4xl px-4 py-8">
         <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
             <Link
               href="/"
-              className="text-sm text-slate-400 transition-colors hover:text-slate-200"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               ← Back to dashboard
             </Link>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">Accounts</h1>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Manage trading accounts (real & demo).
             </p>
           </div>
           <FilterTabs value={filter} onChange={setFilter} />
         </header>
 
-        <section className="mb-6 grid gap-3 sm:grid-cols-2">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2">
           <CreateCta
             type="demo"
             open={openForm === 'demo'}
@@ -101,40 +100,43 @@ export default function AccountsPage() {
             isSubmitting={isCreating}
             error={openForm === 'real' ? createError : null}
           />
-        </section>
+        </div>
 
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-5">
-          <h2 className="mb-4 text-sm font-semibold text-slate-200">
-            {accounts.length} account{accounts.length === 1 ? '' : 's'}
-          </h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {accounts.length} account{accounts.length === 1 ? '' : 's'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {error !== null && error !== undefined && (
+              <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                Failed to load accounts: {errorMessage(error)}
+              </div>
+            )}
 
-          {error !== null && error !== undefined && (
-            <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-              Failed to load accounts: {errorMessage(error)}
-            </div>
-          )}
-
-          {isLoading ? (
-            <div className="flex h-32 items-center justify-center text-slate-500">
-              Loading accounts…
-            </div>
-          ) : accounts.length === 0 ? (
-            <EmptyState filter={filter} />
-          ) : (
-            <ul className="divide-y divide-slate-800">
-              {accounts.map((account) => (
-                <AccountRow
-                  key={account.id}
-                  account={account}
-                  onUpdate={update}
-                  onDelete={remove}
-                  updateError={updateError}
-                  deleteError={deleteError}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
+            {isLoading ? (
+              <div className="flex h-32 items-center justify-center text-muted-foreground">
+                Loading accounts…
+              </div>
+            ) : accounts.length === 0 ? (
+              <EmptyState filter={filter} />
+            ) : (
+              <ul className="divide-y divide-border">
+                {accounts.map((account) => (
+                  <AccountRow
+                    key={account.id}
+                    account={account}
+                    onUpdate={update}
+                    onDelete={remove}
+                    updateError={updateError}
+                    deleteError={deleteError}
+                  />
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
@@ -147,15 +149,15 @@ function FilterTabs({ value, onChange }: { value: FilterType; onChange: (v: Filt
     { key: 'real', label: 'Real' },
   ];
   return (
-    <div className="flex gap-1 rounded-md bg-slate-900 p-1">
+    <div className="flex gap-1 rounded-md bg-muted p-1">
       {tabs.map((t) => (
         <button
           key={t.key}
           onClick={() => onChange(t.key)}
           className={`rounded px-3 py-1 text-sm font-medium transition-colors ${
             value === t.key
-              ? 'bg-slate-100 text-slate-900'
-              : 'text-slate-300 hover:bg-slate-800'
+              ? 'bg-background text-foreground ring-1 ring-foreground/10'
+              : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
           }`}
         >
           {t.label}
@@ -189,42 +191,53 @@ function CreateCta({
       : 'Live-broker account — orders go through the platform API.';
 
   return (
-    <div
-      className={`rounded-lg border ${
-        type === 'demo' ? 'border-purple-500/40 bg-purple-500/5' : 'border-blue-500/40 bg-blue-500/5'
-      } p-4 transition-colors`}
+    <Card
+      className={
+        type === 'demo'
+          ? 'border-purple-500/40 bg-purple-500/5'
+          : 'border-blue-500/40 bg-blue-500/5'
+      }
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className={`text-sm font-semibold ${type === 'demo' ? 'text-purple-200' : 'text-blue-200'}`}>
-            {label}
-          </h3>
-          <p className="mt-0.5 text-xs text-slate-400">{description}</p>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle
+              className={
+                type === 'demo' ? 'text-purple-200' : 'text-blue-200'
+              }
+            >
+              {label}
+            </CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          {!open && (
+            <Button
+              onClick={onOpen}
+              size="sm"
+              variant={type === 'demo' ? 'secondary' : 'secondary'}
+              className={
+                type === 'demo'
+                  ? 'bg-purple-500/20 text-purple-100 hover:bg-purple-500/30 border-purple-500/40'
+                  : 'bg-blue-500/20 text-blue-100 hover:bg-blue-500/30 border-blue-500/40'
+              }
+            >
+              + New
+            </Button>
+          )}
         </div>
-        {!open && (
-          <button
-            onClick={onOpen}
-            className={`shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              type === 'demo'
-                ? 'bg-purple-500/20 text-purple-100 hover:bg-purple-500/30'
-                : 'bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
-            }`}
-          >
-            + New
-          </button>
-        )}
-      </div>
-
+      </CardHeader>
       {open && (
-        <CreateForm
-          type={type}
-          onCreate={onCreate}
-          onCancel={onClose}
-          isSubmitting={isSubmitting}
-          error={error}
-        />
+        <CardContent>
+          <CreateForm
+            type={type}
+            onCreate={onCreate}
+            onCancel={onClose}
+            isSubmitting={isSubmitting}
+            error={error}
+          />
+        </CardContent>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -264,45 +277,39 @@ function CreateForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 grid gap-3 md:grid-cols-[1fr,160px,auto]">
+    <form onSubmit={handleSubmit} className="grid gap-3 md:grid-cols-[1fr,160px,auto]">
       <div>
-        <label className={labelBase} htmlFor={`new-${type}-name`}>
-          Name
-        </label>
-        <input
+        <Label htmlFor={`new-${type}-name`}>Name</Label>
+        <Input
           id={`new-${type}-name`}
           type="text"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={type === 'demo' ? 'e.g. Main Demo' : 'e.g. Binance Spot'}
-          className={inputBase}
         />
       </div>
       <div>
-        <label className={labelBase} htmlFor={`new-${type}-balance`}>
-          Initial balance
-        </label>
-        <input
+        <Label htmlFor={`new-${type}-balance`}>Initial balance</Label>
+        <Input
           id={`new-${type}-balance`}
           type="number"
           step="any"
           value={balance}
           onChange={(e) => setBalance(e.target.value)}
           placeholder="0"
-          className={inputBase}
         />
       </div>
       <div className="flex items-end gap-2">
-        <button type="submit" disabled={isSubmitting || name.trim().length === 0} className={btnPrimary}>
+        <Button type="submit" disabled={isSubmitting || name.trim().length === 0}>
           {isSubmitting ? 'Creating…' : 'Create'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isSubmitting} className={btnSecondary}>
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
           Cancel
-        </button>
+        </Button>
       </div>
       {error !== null && error !== undefined && (
-        <p className="md:col-span-3 text-sm text-red-400">{errorMessage(error)}</p>
+        <p className="md:col-span-3 text-sm text-destructive">{errorMessage(error)}</p>
       )}
     </form>
   );
@@ -325,6 +332,7 @@ function AccountRow({
   const [name, setName] = useState(account.name);
   const [status, setStatus] = useState<'active' | 'disabled'>(account.status);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleSave = async () => {
     const trimmed = name.trim();
@@ -343,84 +351,102 @@ function AccountRow({
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete account "${account.name}"? This cannot be undone.`)) return;
-    await onDelete(account.id);
-  };
-
   const handleCancel = () => {
     setName(account.name);
     setStatus(account.status);
     setEditing(false);
   };
 
+  const handleDelete = async () => {
+    setConfirmOpen(false);
+    await onDelete(account.id);
+  };
+
   if (editing) {
     return (
-      <li className="grid gap-3 py-4 md:grid-cols-[1fr,120px,140px,auto]">
-        <input
+      <li className="grid gap-3 py-4 md:grid-cols-[1fr,140px,140px,auto]">
+        <Input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className={inputBase}
         />
-        <select
+        <Input
+          type="text"
           value={account.type}
           disabled
-          className={inputBase + ' opacity-60 cursor-not-allowed'}
           aria-label="Type (immutable)"
-        >
-          <option value="demo">demo</option>
-          <option value="real">real</option>
-        </select>
+          className="opacity-60"
+        />
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as 'active' | 'disabled')}
-          className={inputBase}
           aria-label="Status"
+          className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <option value="active">active</option>
           <option value="disabled">disabled</option>
         </select>
         <div className="flex gap-2">
-          <button onClick={handleSave} disabled={isSubmitting || name.trim().length === 0} className={btnPrimary}>
+          <Button onClick={handleSave} disabled={isSubmitting || name.trim().length === 0}>
             Save
-          </button>
-          <button onClick={handleCancel} disabled={isSubmitting} className={btnSecondary}>
+          </Button>
+          <Button variant="outline" onClick={handleCancel} disabled={isSubmitting}>
             Cancel
-          </button>
+          </Button>
         </div>
       </li>
     );
   }
 
   return (
-    <li className="grid items-center gap-3 py-4 md:grid-cols-[1fr,120px,140px,auto]">
+    <li className="grid items-center gap-3 py-4 md:grid-cols-[1fr,140px,140px,auto]">
       <div>
-        <div className="font-medium text-slate-100">{account.name}</div>
-        <div className="text-xs text-slate-500">
+        <div className="font-medium">{account.name}</div>
+        <div className="text-xs text-muted-foreground">
           Balance ${formatBalance(account.balance)} · Created {formatDate(account.createdAt)}
         </div>
       </div>
       <div>
-        <span className={`inline-block rounded-md border px-2 py-0.5 text-xs font-medium ${typeBadgeClass(account.type)}`}>
-          {account.type}
-        </span>
+        <Badge variant={account.type === 'demo' ? 'secondary' : 'default'}>{account.type}</Badge>
       </div>
       <div>
-        <span className={`inline-block rounded-md border px-2 py-0.5 text-xs font-medium ${statusBadgeClass(account.status)}`}>
+        <Badge
+          variant={account.status === 'active' ? 'outline' : 'secondary'}
+          className={
+            account.status === 'active'
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+              : ''
+          }
+        >
           {account.status}
-        </span>
+        </Badge>
       </div>
       <div className="flex gap-2 justify-end">
-        <button onClick={() => setEditing(true)} className={btnSecondary}>
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
           Edit
-        </button>
-        <button onClick={handleDelete} className={btnDanger}>
+        </Button>
+        <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)}>
           Delete
-        </button>
+        </Button>
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete account &ldquo;{account.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone. The account and its references will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {(updateError !== null && updateError !== undefined) || (deleteError !== null && deleteError !== undefined) ? (
-        <p className="md:col-span-4 text-sm text-red-400">
+        <p className="md:col-span-4 text-sm text-destructive">
           {updateError !== null && updateError !== undefined
             ? `Update failed: ${errorMessage(updateError)}`
             : ''}
@@ -436,7 +462,7 @@ function AccountRow({
 function EmptyState({ filter }: { filter: FilterType }) {
   const label = filter === 'all' ? 'accounts' : `${filter} accounts`;
   return (
-    <div className="flex h-32 flex-col items-center justify-center gap-1 text-slate-500">
+    <div className="flex h-32 flex-col items-center justify-center gap-1 text-muted-foreground">
       <p className="text-sm">No {label} yet.</p>
       <p className="text-xs">Use one of the buttons above to create one.</p>
     </div>
