@@ -69,6 +69,9 @@ export default function DashboardPage() {
               <Link href="/accounts">
                 <Button variant="outline" size="sm">Accounts</Button>
               </Link>
+              <Link href="/automation">
+                <Button variant="outline" size="sm">Automation</Button>
+              </Link>
             </div>
             <p className="text-sm text-muted-foreground">
               {SYMBOL} · data from Binance · refreshes every 30s

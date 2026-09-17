@@ -253,9 +253,13 @@ export const AutomationItemStatus = {
 export type AutomationItemStatus =
   (typeof AutomationItemStatus)[keyof typeof AutomationItemStatus];
 
+/** Runtime array of allowed status values; useful for validation. */
+export const AUTOMATION_STATUSES = Object.values(AutomationItemStatus);
+
 /** User-configurable automation: input → conditions (AND) → action + output */
 export interface AutomationItem {
   id: string;
+  accountId: string;
   name: string;
   input: AutomationInput;
   /** All conditions must hold (AND) for the item to trigger */
@@ -265,6 +269,64 @@ export interface AutomationItem {
   status: AutomationItemStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Supported signal degrees (scale/timeframe classification) */
+export type AutomationDegree = 'macro' | 'micro' | string;
+
+/** Lifecycle phase of a wave / signal — used for phase-lag detection */
+export type AutomationPhase = 'forming' | 'developing' | 'exhausting';
+
+/** Direction a wave / signal points */
+export type AutomationDirection = 'up' | 'down';
+
+/**
+ * Provider-agnostic signal shape produced by the Normalizer layer.
+ * Every provider's raw output is converted to this so the Confluence layer
+ * can compare signals from different sources without knowing how each was
+ * produced.
+ *
+ * See NCN-12: Provider → Normalizer → Confluence architecture.
+ */
+export interface NormalizedSignal {
+  direction: AutomationDirection;
+  phase: AutomationPhase;
+  degree: AutomationDegree;
+  /** Inclusive start, exclusive end — both in epoch ms */
+  timeRange: { start: number; end: number };
+  /** Where the signal came from. providerKind matches a registered Provider.kind. */
+  source: { providerKind: string; timeframe?: string; symbol?: string };
+}
+
+/**
+ * Single predicate in a confluence rule. Matches a normalized signal if:
+ *   - source.providerKind equals providerKind, AND
+ *   - degree matches (if specified), AND
+ *   - direction matches (if specified).
+ *
+ * Used by both peer comparison (same degree) and containment (different
+ * degrees) — the rule composer doesn't care which mode is intended; the
+ * predicates describe what to match.
+ */
+export interface ConfluencePredicate {
+  providerKind: string;
+  degree?: AutomationDegree;
+  direction?: AutomationDirection;
+}
+
+/**
+ * Boolean combination of multiple predicates over a set of normalized
+ * signals. evaluator returns true when the rule holds.
+ *
+ * Example — AND over (RSI up at 1h, EMA up at 4h):
+ *   { operator: 'and', predicates: [
+ *     { providerKind: 'rsiEmaWave', degree: 'micro', direction: 'up' },
+ *     { providerKind: 'rsiEmaWave', degree: 'macro', direction: 'up' }
+ *   ]}
+ */
+export interface ConfluenceRule {
+  operator: 'and' | 'or';
+  predicates: ConfluencePredicate[];
 }
 
 export interface RsiResult {

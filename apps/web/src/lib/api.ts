@@ -248,3 +248,36 @@ async function safeErrorMessage(res: Response): Promise<string> {
     return `API error ${res.status}`;
   }
 }
+
+// ============================================================
+// NCN-12: Automation items client
+// ============================================================
+
+export interface AutomationInput {
+  kind: string;
+  [key: string]: unknown;
+}
+
+export interface AutomationItem {
+  id: string;
+  accountId: string;
+  name: string;
+  input: AutomationInput;
+  conditions: unknown[];
+  action: unknown;
+  output: unknown;
+  status: 'enabled' | 'disabled' | 'paused';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchAutomationItems(filter?: { accountId?: string }): Promise<AutomationItem[]> {
+  const params = new URLSearchParams();
+  if (filter?.accountId !== undefined) params.set('accountId', filter.accountId);
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/automation${qs !== '' ? `?${qs}` : ''}`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return (await res.json()) as AutomationItem[];
+}
