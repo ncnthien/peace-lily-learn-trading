@@ -56,6 +56,72 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+// ============================================================
+// NCN-5: Core domain models (see @workspace/shared for the
+// TS contract). String columns mirror the contract's string
+// unions; AutomationItem configs are validated JSON.
+// ============================================================
+
+model Account {
+  id        String           @id @default(uuid())
+  type      String // 'real' | 'demo'
+  balance   Float            @default(0)
+  status    String           @default("active") // 'active' | 'disabled'
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  trades     Trade[]
+  positions  Position[]
+}
+
+model Trade {
+  id        String   @id @default(uuid())
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
+  symbol    String
+  side      String // 'buy' | 'sell'
+  price     Float
+  qty       Float
+  timestamp DateTime
+  source    String // 'manual' | 'automation'
+  /// Set when source = 'automation'; kept nullable so the append-only
+  /// ledger survives automation item deletion (FK resolves to null)
+  automationItemId String?
+  automationItem    AutomationItem? @relation(fields: [automationItemId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([accountId, timestamp(sort: Desc)])
+  @@index([symbol, timestamp(sort: Desc)])
+}
+
+/// One open position per account + symbol (contract: per account+symbol state).
+/// unrealizedPnl is derived at read time (needs a live mark price) — not stored.
+model Position {
+  id            String   @id @default(uuid())
+  accountId     String
+  account       Account  @relation(fields: [accountId], references: [id])
+  symbol        String
+  side          String // 'buy' | 'sell'
+  qty           Float
+  avgEntryPrice Float
+  openedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountId, symbol])
+}
+
+model AutomationItem {
+  id         String   @id @default(uuid())
+  name       String
+  input      Json // AutomationInput (discriminated union, see shared contract)
+  conditions Json // AutomationCondition[] (AND-ed)
+  action     Json // AutomationAction
+  output     Json // AutomationOutput
+  status     String   @default("enabled") // 'enabled' | 'disabled' | 'paused'
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  trades     Trade[]
+}
+
 model SRLine {
   id        String   @id @default(uuid())
   symbol    String
