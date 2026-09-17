@@ -7,6 +7,7 @@ import { useCandles, useSignal, useSrLevels } from '@/hooks/use-market';
 import { usePositionBoxes } from '@/hooks/use-position-boxes';
 import { useChartSettings } from '@/hooks/use-setting';
 import { PriceChart } from '@/components/price-chart';
+import { AccountSelector } from '@/components/account-selector';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,17 +74,20 @@ export default function DashboardPage() {
               {SYMBOL} · data from Binance · refreshes every 30s
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {INTERVALS.map((tf) => (
-              <Button
-                key={tf}
-                onClick={() => setIntervalTf(tf)}
-                variant={tf === interval ? 'default' : 'outline'}
-                size="sm"
-              >
-                {tf}
-              </Button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <AccountSelector />
+            <div className="flex flex-wrap gap-2">
+              {INTERVALS.map((tf) => (
+                <Button
+                  key={tf}
+                  onClick={() => setIntervalTf(tf)}
+                  variant={tf === interval ? 'default' : 'outline'}
+                  size="sm"
+                >
+                  {tf}
+                </Button>
+              ))}
+            </div>
           </div>
         </header>
 

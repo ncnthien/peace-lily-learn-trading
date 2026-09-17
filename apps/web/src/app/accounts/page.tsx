@@ -29,6 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { AccountSelector } from '@/components/account-selector';
 
 type FilterType = 'all' | 'real' | 'demo';
 type AccountType = 'real' | 'demo';
@@ -78,7 +79,10 @@ export default function AccountsPage() {
               Manage trading accounts (real & demo).
             </p>
           </div>
-          <FilterTabs value={filter} onChange={setFilter} />
+          <div className="flex flex-wrap items-center gap-3">
+            <AccountSelector />
+            <FilterTabs value={filter} onChange={setFilter} />
+          </div>
         </header>
 
         <div className="mb-6 grid gap-3 sm:grid-cols-2">
