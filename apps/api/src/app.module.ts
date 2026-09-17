@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AccountsModule } from './accounts/accounts.module.js';
 import { AppController } from './app.controller.js';
 import { BinanceModule } from './binance/binance.module.js';
 import { IndicatorsModule } from './indicators/indicators.module.js';
@@ -26,6 +27,7 @@ import { SignalsModule } from './signals/signals.module.js';
     PositionsModule,
     SettingsModule,
     MarketDataModule,
+    AccountsModule,
   ],
   controllers: [AppController],
 })
