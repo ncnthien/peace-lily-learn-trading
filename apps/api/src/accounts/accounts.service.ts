@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Account, AccountStatus, AccountType } from '@workspace/shared';
 import { AccountStatus as AccountStatusValues } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DemoBalanceTracker } from './demo-balance.tracker.js';
 
 export interface CreateAccountInput {
   name: string;
@@ -28,7 +29,10 @@ interface AccountRow {
 
 @Injectable()
 export class AccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly balanceTracker: DemoBalanceTracker,
+  ) {}
 
   /** List accounts, optionally filtered by type. */
   async list(filter?: { type?: AccountType }): Promise<Account[]> {
@@ -56,6 +60,10 @@ export class AccountsService {
         status: AccountStatusValues.ACTIVE,
       },
     });
+    if (created.type === 'demo') {
+      // Subscribe to fill events so the balance updates as orders execute.
+      this.balanceTracker.track(created.id);
+    }
     return this.toDto(created);
   }
 
@@ -72,10 +80,15 @@ export class AccountsService {
   }
 
   async remove(id: string): Promise<{ id: string }> {
-    try {
-      await this.prisma.account.delete({ where: { id } });
-    } catch {
+    // Look up the row first so we know whether to unsubscribe (only demo
+    // accounts are tracked).
+    const existing = await this.prisma.account.findUnique({ where: { id } });
+    if (existing === null) {
       throw new NotFoundException(`Account ${id} not found`);
+    }
+    await this.prisma.account.delete({ where: { id } });
+    if (existing.type === 'demo') {
+      this.balanceTracker.untrack(id);
     }
     return { id };
   }

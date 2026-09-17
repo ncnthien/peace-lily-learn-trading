@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { AccountStatus, AccountType } from '@workspace/shared';
 import { AccountsService } from './accounts.service.js';
+import type { DemoBalanceTracker } from './demo-balance.tracker.js';
 
 interface MockAccountRow {
   id: string;
@@ -81,13 +82,25 @@ function makePrismaMock(rows: MockAccountRow[]) {
   };
 }
 
+function makeTrackerMock() {
+  return {
+    track: vi.fn(),
+    untrack: vi.fn(),
+  };
+}
+
 describe('AccountsService', () => {
   let mock: ReturnType<typeof makePrismaMock>;
+  let tracker: ReturnType<typeof makeTrackerMock>;
   let service: AccountsService;
 
   beforeEach(() => {
     mock = makePrismaMock([makeRow({ id: 'acc-1' })]);
-    service = new AccountsService(mock as unknown as ConstructorParameters<typeof AccountsService>[0]);
+    tracker = makeTrackerMock();
+    service = new AccountsService(
+      mock as unknown as ConstructorParameters<typeof AccountsService>[0],
+      tracker as unknown as DemoBalanceTracker,
+    );
   });
 
   describe('list', () => {
@@ -96,7 +109,10 @@ describe('AccountsService', () => {
         makeRow({ id: 'a', name: 'A', type: AccountType.DEMO, createdAt: new Date('2026-01-01') }),
         makeRow({ id: 'b', name: 'B', type: AccountType.REAL, createdAt: new Date('2026-01-02') }),
       ]);
-      service = new AccountsService(mock as unknown as ConstructorParameters<typeof AccountsService>[0]);
+      service = new AccountsService(
+        mock as unknown as ConstructorParameters<typeof AccountsService>[0],
+        tracker as unknown as DemoBalanceTracker,
+      );
       const result = await service.list();
       expect(result.map((a) => a.id)).toEqual(['a', 'b']);
     });
@@ -106,7 +122,10 @@ describe('AccountsService', () => {
         makeRow({ id: 'a', type: AccountType.DEMO }),
         makeRow({ id: 'b', type: AccountType.REAL }),
       ]);
-      service = new AccountsService(mock as unknown as ConstructorParameters<typeof AccountsService>[0]);
+      service = new AccountsService(
+        mock as unknown as ConstructorParameters<typeof AccountsService>[0],
+        tracker as unknown as DemoBalanceTracker,
+      );
       const result = await service.list({ type: AccountType.REAL });
       expect(result.map((a) => a.id)).toEqual(['b']);
       expect(mock.account.findMany).toHaveBeenCalledWith({
@@ -134,7 +153,7 @@ describe('AccountsService', () => {
   });
 
   describe('create', () => {
-    it('creates with default balance 0 and active status', async () => {
+    it('creates a demo account and starts tracking it', async () => {
       const result = await service.create({
         name: 'My Account',
         type: AccountType.DEMO,
@@ -142,23 +161,27 @@ describe('AccountsService', () => {
       expect(result.name).toBe('My Account');
       expect(result.balance).toBe(0);
       expect(result.status).toBe(AccountStatus.ACTIVE);
-      expect(mock.account.create).toHaveBeenCalledWith({
-        data: {
-          name: 'My Account',
-          type: AccountType.DEMO,
-          balance: 0,
-          status: AccountStatus.ACTIVE,
-        },
-      });
+      expect(tracker.track).toHaveBeenCalledWith(result.id);
     });
 
-    it('honors an explicit initial balance', async () => {
+    it('does not start tracking a real account', async () => {
       const result = await service.create({
         name: 'Real Fund',
         type: AccountType.REAL,
         balance: 10_000,
       });
       expect(result.balance).toBe(10_000);
+      expect(tracker.track).not.toHaveBeenCalled();
+    });
+
+    it('honors an explicit initial balance', async () => {
+      const result = await service.create({
+        name: 'My Account',
+        type: AccountType.DEMO,
+        balance: 5_000,
+      });
+      expect(result.balance).toBe(5_000);
+      expect(tracker.track).toHaveBeenCalledWith(result.id);
     });
   });
 
@@ -191,10 +214,22 @@ describe('AccountsService', () => {
   });
 
   describe('remove', () => {
-    it('returns the deleted id', async () => {
+    it('removes a demo account and stops tracking it', async () => {
       const result = await service.remove('acc-1');
       expect(result).toEqual({ id: 'acc-1' });
       expect(mock.account.delete).toHaveBeenCalledWith({ where: { id: 'acc-1' } });
+      expect(tracker.untrack).toHaveBeenCalledWith('acc-1');
+    });
+
+    it('removes a real account without touching the tracker', async () => {
+      mock = makePrismaMock([makeRow({ id: 'r1', type: AccountType.REAL })]);
+      service = new AccountsService(
+        mock as unknown as ConstructorParameters<typeof AccountsService>[0],
+        tracker as unknown as DemoBalanceTracker,
+      );
+      const result = await service.remove('r1');
+      expect(result).toEqual({ id: 'r1' });
+      expect(tracker.untrack).not.toHaveBeenCalled();
     });
 
     it('throws NotFound when the account does not exist', async () => {
