@@ -64,6 +64,8 @@ model Setting {
 
 model Account {
   id        String           @id @default(uuid())
+  /// Display name (required at the API layer)
+  name      String
   type      String // 'real' | 'demo'
   balance   Float            @default(0)
   status    String           @default("active") // 'active' | 'disabled'
