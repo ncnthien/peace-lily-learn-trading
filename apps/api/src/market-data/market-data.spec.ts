@@ -89,6 +89,40 @@ describe('MockMarketDataSource', () => {
     src.emitTick({ symbol: 'BTCUSDT', price: 1, timestamp: 1 });
     expect(received).toEqual([]);
   });
+
+  describe('getLatestPrice', () => {
+    it('returns null when no price has been seeded', async () => {
+      const src = new MockMarketDataSource();
+      expect(await src.getLatestPrice({ symbol: 'BTCUSDT' })).toBeNull();
+    });
+
+    it('returns the seeded price and is case-insensitive on the lookup', async () => {
+      const src = new MockMarketDataSource();
+      src.setLatestPrice('BTCUSDT', 50_000);
+      expect(await src.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(50_000);
+      expect(await src.getLatestPrice({ symbol: 'btcusdt' })).toBe(50_000);
+    });
+
+    it('updates the cached price when emitTick is called', async () => {
+      const src = new MockMarketDataSource();
+      src.setLatestPrice('BTCUSDT', 100);
+      src.emitTick({ symbol: 'BTCUSDT', price: 105, timestamp: 1 });
+      expect(await src.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(105);
+    });
+
+    it('updates the cached price when emitCandles is called', async () => {
+      const src = new MockMarketDataSource();
+      src.emitCandles('BTCUSDT', [fakeCandle(1_000, 99)]);
+      expect(await src.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(99);
+    });
+
+    it('shutdown clears the cached price', async () => {
+      const src = new MockMarketDataSource();
+      src.setLatestPrice('BTCUSDT', 100);
+      src.shutdown();
+      expect(await src.getLatestPrice({ symbol: 'BTCUSDT' })).toBeNull();
+    });
+  });
 });
 
 describe('BinanceMarketDataSource', () => {
@@ -200,5 +234,45 @@ describe('BinanceMarketDataSource', () => {
     // Give the awaited pollOnce a few microtasks to settle.
     await new Promise((r) => setTimeout(r, 10));
     expect(received).toEqual([]);
+  });
+
+  describe('getLatestPrice', () => {
+    it('calls binance.getPrice and returns the fresh value', async () => {
+      const { source, getPrice } = makeSource();
+      getPrice.mockResolvedValueOnce(42_000);
+      const price = await source.getLatestPrice({ symbol: 'BTCUSDT' });
+      expect(getPrice).toHaveBeenCalledWith('BTCUSDT');
+      expect(price).toBe(42_000);
+    });
+
+    it('normalizes the symbol (trim + uppercase)', async () => {
+      const { source, getPrice } = makeSource();
+      await source.getLatestPrice({ symbol: '  ethusdt  ' });
+      expect(getPrice).toHaveBeenCalledWith('ETHUSDT');
+    });
+
+    it('caches successful results and reuses them on subsequent calls after a broker failure', async () => {
+      const { source, getPrice } = makeSource();
+      getPrice.mockResolvedValueOnce(50_000);
+      expect(await source.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(50_000);
+
+      getPrice.mockRejectedValueOnce(new Error('binance down'));
+      expect(await source.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(50_000);
+      expect(getPrice).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns null when the broker fails and no cached value exists', async () => {
+      const { source, getPrice } = makeSource();
+      getPrice.mockRejectedValue(new Error('binance down'));
+      expect(await source.getLatestPrice({ symbol: 'BTCUSDT' })).toBeNull();
+    });
+
+    it('updates the cache when the polling tick path runs', async () => {
+      const { source, getPrice } = makeSource();
+      // no getLatestPrice call yet — rely on pollOnce via subscribe
+      source.subscribe({ symbol: 'BTCUSDT' }, () => {});
+      await vi.waitFor(() => expect(getPrice).toHaveBeenCalled());
+      expect(await source.getLatestPrice({ symbol: 'BTCUSDT' })).toBe(200);
+    });
   });
 });

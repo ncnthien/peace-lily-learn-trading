@@ -66,6 +66,9 @@ export interface PriceTick {
   timestamp: number;
 }
 
+/** Subscription handle — call to stop receiving updates (idempotent) */
+export type Unsubscribe = () => void;
+
 // ============================================================
 // NCN-5: Core domain schema
 // Contract-only — consumed by the Account, PnL and Automation

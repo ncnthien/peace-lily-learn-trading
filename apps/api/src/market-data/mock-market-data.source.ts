@@ -1,9 +1,9 @@
-import type { Candle, PriceTick } from '@workspace/shared';
+import type { Candle, PriceTick, Unsubscribe } from '@workspace/shared';
 import type {
   GetCandlesInput,
+  GetLatestPriceInput,
   MarketDataSource,
   SubscribeInput,
-  Unsubscribe,
 } from './market-data.types.js';
 
 /**
@@ -11,12 +11,16 @@ import type {
  *   - getCandles returns [] unless a fixture has been pushed via setCandles
  *   - subscribe delivers nothing until emitTick / emitCandles is called
  *   - emitCandles also broadcasts a tick with the close of the last candle
+ *   - getLatestPrice returns null until setLatestPrice is called; emitTick /
+ *     emitCandles also update the cached latest price
  *
- * Multiple subscribers per symbol are supported; shutdown() detaches all.
+ * Multiple subscribers per symbol are supported; shutdown() detaches all
+ * subscribers and clears cached state.
  */
 export class MockMarketDataSource implements MarketDataSource {
   private readonly candles = new Map<string, Candle[]>();
   private readonly tickSubscribers = new Map<string, Set<(tick: PriceTick) => void>>();
+  private readonly latestPrices = new Map<string, number>();
   private shutdownCalled = false;
 
   /** Seed historical candles for a symbol (replaces any existing fixture) */
@@ -24,12 +28,19 @@ export class MockMarketDataSource implements MarketDataSource {
     this.candles.set(symbol.toUpperCase(), candles);
   }
 
+  /** Set the latest known price for a symbol (testing/seed helper). */
+  setLatestPrice(symbol: string, price: number): void {
+    this.latestPrices.set(symbol.toUpperCase(), price);
+  }
+
   /** Fan out a single tick to every subscriber of `symbol` */
   emitTick(tick: PriceTick): void {
-    const subs = this.tickSubscribers.get(tick.symbol.toUpperCase());
+    const upper = tick.symbol.toUpperCase();
+    this.latestPrices.set(upper, tick.price);
+    const subs = this.tickSubscribers.get(upper);
     if (subs === undefined) return;
     for (const cb of subs) {
-      cb({ ...tick, symbol: tick.symbol.toUpperCase() });
+      cb({ ...tick, symbol: upper });
     }
   }
 
@@ -53,6 +64,10 @@ export class MockMarketDataSource implements MarketDataSource {
       return true;
     });
     return filtered.slice(-input.limit);
+  }
+
+  async getLatestPrice(input: GetLatestPriceInput): Promise<number | null> {
+    return this.latestPrices.get(input.symbol.toUpperCase()) ?? null;
   }
 
   subscribe(
@@ -82,6 +97,7 @@ export class MockMarketDataSource implements MarketDataSource {
     this.shutdownCalled = true;
     this.tickSubscribers.clear();
     this.candles.clear();
+    this.latestPrices.clear();
   }
 
   /** Test-only introspection */

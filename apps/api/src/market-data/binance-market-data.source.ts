@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import type { PriceTick } from '@workspace/shared';
+import type { PriceTick, Unsubscribe } from '@workspace/shared';
 import { BinanceService } from '../binance/binance.service.js';
 import type {
   GetCandlesInput,
+  GetLatestPriceInput,
   MarketDataSource,
   SubscribeInput,
-  Unsubscribe,
 } from './market-data.types.js';
 
 /** How often to poll ticker price per active symbol (ms). 1s = responsive without hammering Binance. */
@@ -29,6 +29,10 @@ interface SubscriberSet {
  * fanning out to subscribers — one poll per symbol regardless of subscriber
  * count. A future WebSocket-backed source can swap in without changing
  * callers.
+ *
+ * getLatestPrice always calls binance.getPrice once for a fresh quote and
+ * caches the result. On broker failure, returns the last cached value
+ * (graceful degradation) or null if nothing has been observed yet.
  */
 @Injectable()
 export class BinanceMarketDataSource
@@ -36,6 +40,7 @@ export class BinanceMarketDataSource
 {
   private readonly logger = new Logger(BinanceMarketDataSource.name);
   private readonly subscribers = new Map<string, SubscriberSet>();
+  private readonly latestPrices = new Map<string, number>();
 
   constructor(private readonly binance: BinanceService) {}
 
@@ -84,6 +89,20 @@ export class BinanceMarketDataSource
     };
   }
 
+  async getLatestPrice(input: GetLatestPriceInput): Promise<number | null> {
+    const symbol = normalizeSymbol(input.symbol);
+    try {
+      const price = await this.binance.getPrice(symbol);
+      this.latestPrices.set(symbol, price);
+      return price;
+    } catch (err) {
+      this.logger.warn(
+        `getLatestPrice: broker call failed for ${symbol}: ${String(err)} — returning cached value`,
+      );
+      return this.latestPrices.get(symbol) ?? null;
+    }
+  }
+
   shutdown(): void {
     for (const [symbol, set] of this.subscribers) {
       if (set.timer !== null) clearInterval(set.timer);
@@ -92,6 +111,7 @@ export class BinanceMarketDataSource
       set.callbacks.clear();
       this.subscribers.delete(symbol);
     }
+    this.latestPrices.clear();
   }
 
   onModuleDestroy(): void {
@@ -104,6 +124,7 @@ export class BinanceMarketDataSource
     const callbacks = set.callbacks;
     try {
       const price = await this.binance.getPrice(symbol);
+      this.latestPrices.set(symbol, price);
       const tick: PriceTick = { symbol, price, timestamp: Date.now() };
       for (const cb of callbacks) {
         try {

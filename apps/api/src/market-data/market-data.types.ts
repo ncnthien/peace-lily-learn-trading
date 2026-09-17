@@ -1,4 +1,4 @@
-import type { Candle, PriceTick, Timeframe } from '@workspace/shared';
+import type { Candle, PriceTick, Timeframe, Unsubscribe } from '@workspace/shared';
 
 /** Historical OHLC query — mirrors Binance klines semantics (paged backwards) */
 export interface GetCandlesInput {
@@ -11,11 +11,13 @@ export interface GetCandlesInput {
   endTime?: number;
 }
 
-/** Real-time subscription handle — call to stop receiving ticks (idempotent) */
-export type Unsubscribe = () => void;
-
-/** Tick subscription input */
+/** Real-time subscription input */
 export interface SubscribeInput {
+  symbol: string;
+}
+
+/** Single-shot price query input */
+export interface GetLatestPriceInput {
   symbol: string;
 }
 
@@ -34,6 +36,16 @@ export abstract class MarketDataSource {
     input: SubscribeInput,
     onTick: (tick: PriceTick) => void,
   ): Unsubscribe;
+
+  /**
+   * Fetch the most recent known price for a symbol.
+   * - BinanceMarketDataSource: calls the broker for a fresh price (and caches
+   *   the result so subsequent calls are cheap; on broker failure, returns
+   *   the last cached price, or null if none was ever observed).
+   * - MockMarketDataSource: returns the value seeded via setLatestPrice.
+   * Returns null when no price has been observed yet.
+   */
+  abstract getLatestPrice(input: GetLatestPriceInput): Promise<number | null>;
 
   /** Release any resources (intervals, sockets). Safe to call multiple times. */
   abstract shutdown(): void;
