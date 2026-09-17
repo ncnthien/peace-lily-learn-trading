@@ -137,6 +137,73 @@ export interface Position {
   updatedAt: string;
 }
 
+// ============================================================
+// NCN-7: Order/Execution abstraction — order lifecycle contract.
+// Consumed by Automation action executor (NCN-16) and manual order
+// entry. The OrderExecution interface itself lives in apps/api
+// (NestJS DI concern); the data shape is shared so other modules
+// can consume orders without depending on the API package.
+// ============================================================
+
+export const OrderStatus = {
+  PENDING: 'pending',
+  FILLED: 'filled',
+  CANCELLED: 'cancelled',
+  REJECTED: 'rejected',
+} as const;
+export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
+
+/**
+ * Order lifecycle — pending → (filled | cancelled | rejected). The mock
+ * implementation fills instantly for demo accounts; real broker impls
+ * will spend time in PENDING before transitioning to FILLED.
+ */
+export interface Order {
+  id: string;
+  accountId: string;
+  symbol: string;
+  side: TradeSide;
+  /** Quantity placed (always positive; side determines direction) */
+  qty: number;
+  status: OrderStatus;
+  /** Set when status transitions to FILLED */
+  filledPrice?: number;
+  filledAt?: string;
+  /** Set when status is REJECTED */
+  rejectionReason?: string;
+  /** ISO timestamps */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Input to placeOrder. Price is not provided — execution determines it. */
+export interface PlaceOrderInput {
+  accountId: string;
+  symbol: string;
+  side: TradeSide;
+  qty: number;
+}
+
+/**
+ * Lifecycle event emitted by OrderExecution subscriptions.
+ * - placed: order accepted by the broker (status=PENDING). Fires before fill.
+ * - filled: order fully filled.
+ * - cancelled: order cancelled (by us or broker).
+ * - rejected: order rejected at submission (validation or broker-side).
+ *
+ * For demo accounts (instant fill), placed and fired fire back-to-back.
+ * For real broker accounts, placed fires first and filled/cancelled arrives
+ * asynchronously when the broker confirms.
+ */
+export type OrderEvent =
+  | { kind: 'placed'; order: Order }
+  | { kind: 'filled'; order: Order }
+  | { kind: 'cancelled'; order: Order }
+  | { kind: 'rejected'; order: Order };
+
+/** Subscription handle — call to stop receiving updates (idempotent) */
+export type Unsubscribe = () => void;
+
 /**
  * Automation input provider — the event source that can trigger the item.
  * Kinds follow the Automation epic's provider backlog:

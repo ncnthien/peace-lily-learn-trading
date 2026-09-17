@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { BinanceModule } from './binance/binance.module.js';
 import { IndicatorsModule } from './indicators/indicators.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
+import { OrderExecutionModule } from './order-execution/order-execution.module.js';
 import { PriceSyncModule } from './price-sync/price-sync.module.js';
 import { PricesModule } from './prices/prices.module.js';
 import { PositionsModule } from './positions/positions.module.js';
@@ -28,6 +29,7 @@ import { SignalsModule } from './signals/signals.module.js';
     SettingsModule,
     MarketDataModule,
     AccountsModule,
+    OrderExecutionModule,
   ],
   controllers: [AppController],
 })
