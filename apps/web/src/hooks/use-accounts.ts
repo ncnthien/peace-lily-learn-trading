@@ -4,12 +4,25 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
 import {
+  apiGet,
   createAccount,
   deleteAccount,
-  fetchAccounts,
   updateAccount,
   type AccountRecord,
 } from '@/lib/api';
+
+// ----- GET fetcher (local to this hook) -----
+
+export async function fetchAccounts(
+  filter?: { type?: 'real' | 'demo' },
+): Promise<AccountRecord[]> {
+  const params = new URLSearchParams();
+  if (filter?.type !== undefined) params.set('type', filter.type);
+  const qs = params.toString();
+  return apiGet<AccountRecord[]>(`/accounts${qs !== '' ? `?${qs}` : ''}`);
+}
+
+// ----- Hook -----
 
 export interface CreateAccountDraft {
   name: string;

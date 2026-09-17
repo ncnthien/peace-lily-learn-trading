@@ -1,241 +1,24 @@
-import type {
-  CandleWithIndicators,
-  SignalDecision,
-  SupportResistanceResult,
-  Timeframe,
-} from '@workspace/shared';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
-export async function fetchIndicatorCandles(
-  symbol: string,
-  interval: Timeframe,
-  limit = 200,
-  endTime?: number,
-): Promise<CandleWithIndicators[]> {
-  const params = new URLSearchParams({
-    symbol,
-    interval,
-    limit: String(limit),
-  });
-  if (endTime !== undefined) params.set('endTime', String(endTime));
-  const res = await fetch(`${API_URL}/indicators/candles?${params}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as CandleWithIndicators[];
-}
-
-export interface PositionBoxRecord {
-  id: string;
-  symbol: string;
-  interval: string;
-  side: 'long' | 'short';
-  entryOpenTime: number;
-  bars: number;
-  entryPrice: number;
-  stopPrice: number;
-  tpPrice: number;
-}
-
-export async function fetchPositionBoxes(
-  symbol: string,
-  interval: string,
-): Promise<PositionBoxRecord[]> {
-  const res = await fetch(
-    `${API_URL}/position-boxes?symbol=${symbol}&interval=${interval}`,
-    { cache: 'no-store' },
-  );
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as PositionBoxRecord[];
-}
-
-export async function createPositionBox(
-  payload: Omit<PositionBoxRecord, 'id'>,
-): Promise<PositionBoxRecord> {
-  const res = await fetch(`${API_URL}/position-boxes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as PositionBoxRecord;
-}
-
-export async function updatePositionBox(
-  id: string,
-  patch: { entryPrice?: number; stopPrice?: number; tpPrice?: number; bars?: number },
-): Promise<PositionBoxRecord> {
-  const res = await fetch(`${API_URL}/position-boxes/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as PositionBoxRecord;
-}
-
-export async function deletePositionBox(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/position-boxes/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-}
-
-export interface SRLineRecord {
-  id: string;
-  symbol: string;
-  interval: string;
-  kind: 'support' | 'resistance';
-  price: number;
-}
-
-export async function fetchSRLines(
-  symbol: string,
-  interval: string,
-): Promise<SRLineRecord[]> {
-  const res = await fetch(`${API_URL}/sr-lines?symbol=${symbol}&interval=${interval}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as SRLineRecord[];
-}
-
-export async function createSRLine(payload: {
-  symbol: string;
-  interval: string;
-  kind: 'support' | 'resistance';
-  price: number;
-}): Promise<SRLineRecord> {
-  const res = await fetch(`${API_URL}/sr-lines`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as SRLineRecord;
-}
-
-export async function updateSRLine(
-  id: string,
-  price: number,
-): Promise<SRLineRecord> {
-  const res = await fetch(`${API_URL}/sr-lines/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ price }),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as SRLineRecord;
-}
-
-export async function deleteSRLine(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/sr-lines/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-}
-
-export async function fetchSrLevels(
-  symbol: string,
-  interval: Timeframe,
-): Promise<SupportResistanceResult> {
-  const res = await fetch(
-    `${API_URL}/indicators/levels?symbol=${symbol}&interval=${interval}`,
-    { cache: 'no-store' },
-  );
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as SupportResistanceResult;
-}
-
-export async function fetchSetting<T>(key: string): Promise<T | null> {
-  const res = await fetch(`${API_URL}/settings/${key}`, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  const data = (await res.json()) as { value: T | null };
-  return data.value;
-}
-
-export async function updateSetting(key: string, value: unknown): Promise<void> {
-  const res = await fetch(`${API_URL}/settings/${key}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value }),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-}
-
-export async function fetchLatestSignal(
-  symbol: string,
-  interval: Timeframe,
-  limit = 200,
-): Promise<SignalDecision> {
-  const res = await fetch(
-    `${API_URL}/signals/latest?symbol=${symbol}&interval=${interval}&limit=${limit}`,
-    { cache: 'no-store' },
-  );
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as SignalDecision;
-}
-
 // ============================================================
-// NCN-8: Accounts CRUD client
+// API client — two roles:
+//   1. Generic HTTP helpers (apiGet / apiPost / apiPatch / apiPut /
+//      apiDelete) used by the GET fetchers and mutations in
+//      apps/web/src/hooks/*. Each hook owns its own GET fetcher so the
+//      fetcher and its React Query consumer live together.
+//   2. Domain types and mutation helpers (create/update/delete) that
+//      the hooks layer calls from inside useMutation.
 // ============================================================
 
-export interface AccountRecord {
-  id: string;
-  name: string;
-  type: 'real' | 'demo';
-  balance: number;
-  status: 'active' | 'disabled';
-  createdAt: string;
-  updatedAt: string;
-}
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-export async function fetchAccounts(filter?: { type?: 'real' | 'demo' }): Promise<AccountRecord[]> {
-  const params = new URLSearchParams();
-  if (filter?.type !== undefined) params.set('type', filter.type);
-  const qs = params.toString();
-  const res = await fetch(`${API_URL}/accounts${qs !== '' ? `?${qs}` : ''}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as AccountRecord[];
-}
+// ----- Generic HTTP helpers -----
 
-export async function createAccount(payload: {
-  name: string;
-  type: 'real' | 'demo';
-  balance?: number;
-}): Promise<AccountRecord> {
-  const res = await fetch(`${API_URL}/accounts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const message = await safeErrorMessage(res);
-    throw new Error(message);
-  }
-  return (await res.json()) as AccountRecord;
-}
-
-export async function updateAccount(
-  id: string,
-  patch: { name?: string; status?: 'active' | 'disabled' },
-): Promise<AccountRecord> {
-  const res = await fetch(`${API_URL}/accounts/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
-  });
-  if (!res.ok) {
-    const message = await safeErrorMessage(res);
-    throw new Error(message);
-  }
-  return (await res.json()) as AccountRecord;
-}
-
-export async function deleteAccount(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/accounts/${id}`, { method: 'DELETE' });
-  if (!res.ok) {
-    const message = await safeErrorMessage(res);
-    throw new Error(message);
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
 }
 
@@ -249,11 +32,117 @@ async function safeErrorMessage(res: Response): Promise<string> {
   }
 }
 
+async function ensureOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    const message = await safeErrorMessage(res);
+    throw new ApiError(res.status, message);
+  }
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { cache: 'no-store' });
+  await ensureOk(res);
+  return (await res.json()) as T;
+}
+
+export async function apiPost<TResponse, TBody = unknown>(
+  path: string,
+  body: TBody,
+): Promise<TResponse> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  await ensureOk(res);
+  return (await res.json()) as TResponse;
+}
+
+export async function apiPatch<TResponse, TBody = unknown>(
+  path: string,
+  body: TBody,
+): Promise<TResponse> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  await ensureOk(res);
+  return (await res.json()) as TResponse;
+}
+
+export async function apiPut<TBody = unknown>(path: string, body: TBody): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  await ensureOk(res);
+}
+
+export async function apiDelete(path: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, { method: 'DELETE' });
+  await ensureOk(res);
+}
+
+// ----- Domain types -----
+
+export interface PositionBoxRecord {
+  id: string;
+  symbol: string;
+  interval: string;
+  side: 'long' | 'short';
+  entryOpenTime: number;
+  bars: number;
+  entryPrice: number;
+  stopPrice: number;
+  tpPrice: number;
+}
+
+export interface SRLineRecord {
+  id: string;
+  symbol: string;
+  interval: string;
+  kind: 'support' | 'resistance';
+  price: number;
+}
+
 // ============================================================
-// NCN-12 + NCN-27: Automation items client.
-// The condition tree is a single ConditionNode (leaf or composite); see
-// packages/shared for the canonical type. We mirror only the discriminator
-// fields the UI summary needs.
+// NCN-8: Accounts CRUD mutations (GET lives in hooks/use-accounts.ts)
+// ============================================================
+
+export interface AccountRecord {
+  id: string;
+  name: string;
+  type: 'real' | 'demo';
+  balance: number;
+  status: 'active' | 'disabled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function createAccount(payload: {
+  name: string;
+  type: 'real' | 'demo';
+  balance?: number;
+}): Promise<AccountRecord> {
+  return apiPost<AccountRecord>('/accounts', payload);
+}
+
+export async function updateAccount(
+  id: string,
+  patch: { name?: string; status?: 'active' | 'disabled' },
+): Promise<AccountRecord> {
+  return apiPatch<AccountRecord>(`/accounts/${id}`, patch);
+}
+
+export async function deleteAccount(id: string): Promise<void> {
+  return apiDelete(`/accounts/${id}`);
+}
+
+// ============================================================
+// NCN-12 + NCN-27: Automation items domain types.
+// GET lives in hooks/use-automation.ts; no mutations yet (NCN-18+).
 // ============================================================
 
 export interface AutomationInput {
@@ -298,15 +187,4 @@ export interface AutomationItem {
   status: 'enabled' | 'disabled' | 'paused';
   createdAt: string;
   updatedAt: string;
-}
-
-export async function fetchAutomationItems(filter?: { accountId?: string }): Promise<AutomationItem[]> {
-  const params = new URLSearchParams();
-  if (filter?.accountId !== undefined) params.set('accountId', filter.accountId);
-  const qs = params.toString();
-  const res = await fetch(`${API_URL}/automation${qs !== '' ? `?${qs}` : ''}`, {
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return (await res.json()) as AutomationItem[];
 }

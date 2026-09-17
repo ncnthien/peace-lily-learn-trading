@@ -4,12 +4,23 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import type { Timeframe } from '@workspace/shared';
 import {
-  createSRLine,
-  deleteSRLine,
-  fetchSRLines,
-  updateSRLine,
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
   type SRLineRecord,
 } from '@/lib/api';
+
+// ----- GET fetcher (local to this hook) -----
+
+export async function fetchSRLines(
+  symbol: string,
+  interval: string,
+): Promise<SRLineRecord[]> {
+  return apiGet<SRLineRecord[]>(`/sr-lines?symbol=${symbol}&interval=${interval}`);
+}
+
+// ----- Hook -----
 
 export function useSRLines(symbol: string, interval: Timeframe) {
   const queryClient = useQueryClient();
@@ -34,7 +45,10 @@ export function useSRLines(symbol: string, interval: Timeframe) {
 
   const create = useCallback(
     async (kind: 'support' | 'resistance', price: number) => {
-      const created = await createSRLine({ symbol, interval, kind, price });
+      const created = await apiPost<
+        SRLineRecord,
+        { symbol: string; interval: string; kind: 'support' | 'resistance'; price: number }
+      >('/sr-lines', { symbol, interval, kind, price });
       setCache((prev) => [...prev, created]);
     },
     [symbol, interval, setCache],
@@ -50,7 +64,10 @@ export function useSRLines(symbol: string, interval: Timeframe) {
   const commit = useCallback(
     async (id: string, price: number) => {
       try {
-        const updated = await updateSRLine(id, price);
+        const updated = await apiPatch<SRLineRecord, { price: number }>(
+          `/sr-lines/${id}`,
+          { price },
+        );
         setCache((prev) => prev.map((r) => (r.id === id ? updated : r)));
       } catch {
         // keep local state; next reload resyncs
@@ -62,7 +79,7 @@ export function useSRLines(symbol: string, interval: Timeframe) {
   const remove = useCallback(
     async (id: string) => {
       setCache((prev) => prev.filter((r) => r.id !== id));
-      await deleteSRLine(id);
+      await apiDelete(`/sr-lines/${id}`);
     },
     [setCache],
   );
