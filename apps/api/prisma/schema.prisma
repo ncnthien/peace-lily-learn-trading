@@ -71,8 +71,9 @@ model Account {
   status    String           @default("active") // 'active' | 'disabled'
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
-  trades     Trade[]
-  positions  Position[]
+  trades         Trade[]
+  positions      Position[]
+  automationItems AutomationItem[]
 }
 
 model Trade {
@@ -113,6 +114,9 @@ model Position {
 
 model AutomationItem {
   id         String   @id @default(uuid())
+  /// Owning account (NCN-12). Required at the API layer.
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   name       String
   input      Json // AutomationInput (discriminated union, see shared contract)
   conditions Json // AutomationCondition[] (AND-ed)

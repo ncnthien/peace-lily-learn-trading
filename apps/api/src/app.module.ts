@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AccountsModule } from './accounts/accounts.module.js';
 import { AppController } from './app.controller.js';
+import { AutomationModule } from './automation/automation.module.js';
 import { BinanceModule } from './binance/binance.module.js';
 import { IndicatorsModule } from './indicators/indicators.module.js';
 import { MarketDataModule } from './market-data/market-data.module.js';
@@ -30,6 +31,7 @@ import { SignalsModule } from './signals/signals.module.js';
     MarketDataModule,
     AccountsModule,
     OrderExecutionModule,
+    AutomationModule,
   ],
   controllers: [AppController],
 })
