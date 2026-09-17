@@ -201,9 +201,6 @@ export type OrderEvent =
   | { kind: 'cancelled'; order: Order }
   | { kind: 'rejected'; order: Order };
 
-/** Subscription handle — call to stop receiving updates (idempotent) */
-export type Unsubscribe = () => void;
-
 /**
  * Automation input provider — the event source that can trigger the item.
  * Kinds follow the Automation epic's provider backlog:
