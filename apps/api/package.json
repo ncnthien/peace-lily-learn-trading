@@ -32,6 +32,7 @@
     "@prisma/client": "^6.19.3",
     "@workspace/shared": "workspace:*",
     "croner": "^10.0.1",
+    "nestjs-zod": "^5.5.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "trading-signals": "^8.3.0"
