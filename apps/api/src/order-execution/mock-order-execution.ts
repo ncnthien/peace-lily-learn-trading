@@ -1,194 +1,254 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+// (BadRequestException is used by cancelOrder when state-machine
+// validation fails; NotFoundException by getOrderStatus / cancelOrder
+// for unknown ids.)
+import type { Order, OrderEvent, PlaceOrderInput } from '@workspace/shared';
 import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-import type { Order, OrderEvent, PlaceOrderInput, Unsubscribe } from '@workspace/shared';
-import { AccountType, OrderStatus } from '@workspace/shared';
-import type { OrderExecution } from './order-execution.types.js';
-
-/** Normalize a symbol to the form the broker/exchange expects. */
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase();
-}
+  AccountType,
+  OrderStatus,
+  TradeSide,
+} from '@workspace/shared';
+import {
+  ORDER_EXECUTION,
+  type OrderExecution,
+} from './order-execution.types.js';
 
 /**
- * Demo OrderExecution — in-memory store, instant fill at a configured price.
- * Owns its own order state (in future, this will move to a Prisma table).
+ * Mock implementation of `OrderExecution` for demo accounts. Fills
+ * instantly at the configured mark price (NCN-13's `time`-triggered
+ * rules depend on this determinism) but also exposes `placePendingOrder`
+ * for tests that need to exercise cancel / reject paths.
  *
- * This is the DEMO side of the OrderExecution router pattern. The REAL
- * side (broker API — NCN-10) will follow the same interface but query the
- * platform's API for order status rather than maintaining local state.
- *
- * Fill prices default to 1.0; override per symbol via setFillPrice for
- * tests or seeded demo accounts.
- *
- * Event emission:
- *   - placeOrder (instant fill): emits 'placed' then 'filled' back-to-back
- *     so subscribers see the same lifecycle they would from a real broker.
- *   - placePendingOrder: emits 'placed' only (consumer or real broker will
- *     later emit 'filled' or 'cancelled').
- *   - cancelOrder on a pending order: emits 'cancelled'.
- *   - placeOrder with qty <= 0: emits 'rejected' (no 'placed' — the order
- *     never reached the broker).
- *   - All emissions are scoped to the order's accountId — subscribers on
- *     other accounts don't see them.
+ * Threading `automationItemId` through to the emitted Order is what
+ * lets TradeHistoryService attribute each fill back to its rule in the
+ * Trade ledger (NCN-19).
  */
 @Injectable()
 export class MockOrderExecution implements OrderExecution {
-  readonly accountType: AccountType = AccountType.DEMO;
+  /** Marker for the future router (NCN-10) — this executor handles demo accounts. */
+  readonly accountType = AccountType.DEMO;
 
-  private readonly logger = new Logger(MockOrderExecution.name);
-  private readonly orders = new Map<string, Order>();
+  // Per-account order book (used for cancel / getOrderStatus lookups).
+  private readonly orders = new Map<string, Map<string, Order>>();
+
+  // Per-symbol mark price for the mock. Real impl queries the broker.
+  // Empty by default — tests set explicit prices via `setFillPrice()`.
   private readonly fillPrices = new Map<string, number>();
-  private readonly eventSubscribers = new Map<string, Set<(event: OrderEvent) => void>>();
-  private readonly DEFAULT_FILL_PRICE = 1;
 
-  /** Configure the fill price for a symbol (testing/seed helper). */
+  // Per-account listeners — DemoBalanceTracker, TradeHistoryService,
+  // and any future consumer subscribe by accountId.
+  private readonly subscribers = new Map<string, Set<(event: OrderEvent) => void>>();
+
+  /** Set a deterministic fill price for tests / fixtures. */
   setFillPrice(symbol: string, price: number): void {
-    this.fillPrices.set(normalizeSymbol(symbol), price);
+    this.fillPrices.set(symbol, price);
   }
 
-  /** Wipe all orders, per-symbol fill prices, and event subscribers. Test cleanup helper. */
+  /** How many listeners are attached for `accountId`. Used by tests. */
+  subscriberCount(accountId: string): number {
+    return this.subscribers.get(accountId)?.size ?? 0;
+  }
+
+  /** Test helper — does this executor know about the given order id? */
+  hasOrder(orderId: string): boolean {
+    for (const bucket of this.orders.values()) {
+      if (bucket.has(orderId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Place an order and instant-fill it (placed → filled back-to-back).
+   * Returns a rejected order (rather than throwing) for invalid input
+   * — the runner / manual endpoint can branch on status without
+   * try/catch noise. The runner still counts this as an error per
+   * item.
+   */
+  async placeOrder(input: PlaceOrderInput): Promise<Order> {
+    const normalized = this.normalize(input);
+    const validationError = this.validate(normalized);
+    const now = new Date();
+    const base: Order = {
+      id: crypto.randomUUID(),
+      accountId: normalized.accountId,
+      symbol: normalized.symbol,
+      side: normalized.side,
+      qty: normalized.qty,
+      status: OrderStatus.PENDING,
+      automationItemId: normalized.automationItemId,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    if (validationError !== null) {
+      const rejected: Order = {
+        ...base,
+        status: OrderStatus.REJECTED,
+        rejectionReason: validationError,
+      };
+      this.saveOrder(rejected);
+      this.emit(normalized.accountId, { kind: 'rejected', order: rejected });
+      return rejected;
+    }
+    this.saveOrder(base);
+    this.emit(normalized.accountId, { kind: 'placed', order: base });
+    return this.fillOrder(base);
+  }
+
+  /**
+   * Place an order that stays PENDING (no fill event). Tests use this to
+   * exercise cancel/reject paths. Real broker impls hit this branch
+   * while waiting for fill confirmation.
+   */
+  async placePendingOrder(input: PlaceOrderInput): Promise<Order> {
+    const normalized = this.normalize(input);
+    const validationError = this.validate(normalized);
+    const now = new Date();
+    const base: Order = {
+      id: crypto.randomUUID(),
+      accountId: normalized.accountId,
+      symbol: normalized.symbol,
+      side: normalized.side,
+      qty: normalized.qty,
+      status: OrderStatus.PENDING,
+      automationItemId: normalized.automationItemId,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    if (validationError !== null) {
+      const rejected: Order = {
+        ...base,
+        status: OrderStatus.REJECTED,
+        rejectionReason: validationError,
+      };
+      this.saveOrder(rejected);
+      this.emit(normalized.accountId, { kind: 'rejected', order: rejected });
+      return rejected;
+    }
+    this.saveOrder(base);
+    this.emit(normalized.accountId, { kind: 'placed', order: base });
+    return base;
+  }
+
+  /**
+   * Cancel a pending order. Throws NotFound if the orderId is unknown
+   * for the given accountId, BadRequest if the order is in a terminal
+   * state (filled/cancelled/rejected).
+   */
+  async cancelOrder(accountId: string, orderId: string): Promise<Order> {
+    const order = this.requireOrder(accountId, orderId);
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        `Cannot cancel order ${orderId} in status ${order.status}`,
+      );
+    }
+    const cancelled: Order = {
+      ...order,
+      status: OrderStatus.CANCELLED,
+      updatedAt: new Date().toISOString(),
+    };
+    this.saveOrder(cancelled);
+    this.emit(accountId, { kind: 'cancelled', order: cancelled });
+    return cancelled;
+  }
+
+  async getOrderStatus(accountId: string, orderId: string): Promise<Order> {
+    return this.requireOrder(accountId, orderId);
+  }
+
+  /**
+   * Subscribe to order events for an account. The returned unsubscribe
+   * function is idempotent. Used by DemoBalanceTracker, TradeHistoryService,
+   * and any consumer that needs the lifecycle event stream.
+   */
+  subscribe(
+    filter: { accountId: string },
+    handler: (event: OrderEvent) => void,
+  ): () => void {
+    let set = this.subscribers.get(filter.accountId);
+    if (set === undefined) {
+      set = new Set();
+      this.subscribers.set(filter.accountId, set);
+    }
+    set.add(handler);
+    return () => {
+      const live = this.subscribers.get(filter.accountId);
+      if (live === undefined) return;
+      live.delete(handler);
+      if (live.size === 0) this.subscribers.delete(filter.accountId);
+    };
+  }
+
+  /**
+   * Test-only reset. Wipes all orders, fill prices, and subscribers.
+   * Not part of the OrderExecution interface — used between specs.
+   */
   reset(): void {
     this.orders.clear();
     this.fillPrices.clear();
-    this.eventSubscribers.clear();
+    this.subscribers.clear();
   }
 
-  async placeOrder(input: PlaceOrderInput): Promise<Order> {
-    const symbol = normalizeSymbol(input.symbol);
-    const now = new Date().toISOString();
-    const id = randomUUID();
-    const base = {
-      id,
-      accountId: input.accountId,
-      symbol,
-      side: input.side,
-      qty: input.qty,
-      createdAt: now,
-      updatedAt: now,
-    } satisfies Omit<Order, 'status'>;
+  // ---------- internals ----------
 
-    if (input.qty <= 0) {
-      const order: Order = {
-        ...base,
-        status: OrderStatus.REJECTED,
-        rejectionReason: 'qty must be > 0',
-      };
-      this.orders.set(id, order);
-      this.emit(order.accountId, { kind: 'rejected', order });
-      return order;
+  private normalize(input: PlaceOrderInput): PlaceOrderInput {
+    const symbol = input.symbol.trim().toUpperCase();
+    return { ...input, symbol };
+  }
+
+  private validate(input: PlaceOrderInput): string | null {
+    if (!Number.isFinite(input.qty) || input.qty <= 0) {
+      return `Order qty must be positive (received ${String(input.qty)})`;
     }
+    return null;
+  }
 
-    // Emit 'placed' first so subscribers observe the same lifecycle they'd
-    // see from a real broker (placed → filled). The pending view does not
-    // carry a filledPrice — that's only known once the broker confirms.
-    const placed: Order = { ...base, status: OrderStatus.PENDING };
-    this.emit(placed.accountId, { kind: 'placed', order: placed });
-
-    const price = this.fillPrices.get(symbol) ?? this.DEFAULT_FILL_PRICE;
+  private fillOrder(order: Order): Order {
+    const fillPrice = this.fillPrices.get(order.symbol) ?? 1;
+    // Reuse `createdAt` so callers can correlate placed → filled by
+    // matching timestamps (the spec relies on this).
     const filled: Order = {
-      ...base,
+      ...order,
       status: OrderStatus.FILLED,
-      filledPrice: price,
-      filledAt: now,
+      filledPrice: fillPrice,
+      filledAt: order.createdAt,
+      updatedAt: order.createdAt,
     };
-    this.orders.set(id, filled);
+    this.saveOrder(filled);
     this.emit(filled.accountId, { kind: 'filled', order: filled });
     return filled;
   }
 
-  /**
-   * Mock-only helper for tests: place an order that stays PENDING so the
-   * cancelOrder path can be exercised. Real broker impls don't need this —
-   * PENDING is their natural pre-fill state.
-   */
-  async placePendingOrder(input: PlaceOrderInput): Promise<Order> {
-    const order: Order = {
-      id: randomUUID(),
-      accountId: input.accountId,
-      symbol: normalizeSymbol(input.symbol),
-      side: input.side,
-      qty: input.qty,
-      status: OrderStatus.PENDING,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    this.orders.set(order.id, order);
-    this.emit(order.accountId, { kind: 'placed', order });
-    return order;
+  private saveOrder(order: Order): void {
+    let bucket = this.orders.get(order.accountId);
+    if (bucket === undefined) {
+      bucket = new Map();
+      this.orders.set(order.accountId, bucket);
+    }
+    bucket.set(order.id, order);
   }
 
-  async cancelOrder(accountId: string, orderId: string): Promise<Order> {
-    const order = this.orders.get(orderId);
-    if (order === undefined || order.accountId !== accountId) {
-      throw new NotFoundException(`Order ${orderId} not found for account ${accountId}`);
-    }
-    if (order.status !== OrderStatus.PENDING) {
-      throw new BadRequestException(
-        `Order ${orderId} is ${order.status} and cannot be cancelled`,
-      );
-    }
-    order.status = OrderStatus.CANCELLED;
-    order.updatedAt = new Date().toISOString();
-    this.emit(order.accountId, { kind: 'cancelled', order });
-    return order;
-  }
-
-  async getOrderStatus(accountId: string, orderId: string): Promise<Order> {
-    const order = this.orders.get(orderId);
-    if (order === undefined || order.accountId !== accountId) {
+  private requireOrder(accountId: string, orderId: string): Order {
+    const order = this.orders.get(accountId)?.get(orderId);
+    if (order === undefined) {
       throw new NotFoundException(`Order ${orderId} not found for account ${accountId}`);
     }
     return order;
-  }
-
-  subscribe(
-    input: { accountId: string },
-    onEvent: (event: OrderEvent) => void,
-  ): Unsubscribe {
-    const accountId = input.accountId;
-    let subs = this.eventSubscribers.get(accountId);
-    if (subs === undefined) {
-      subs = new Set();
-      this.eventSubscribers.set(accountId, subs);
-    }
-    subs.add(onEvent);
-    let detached = false;
-    return () => {
-      if (detached) return;
-      detached = true;
-      const current = this.eventSubscribers.get(accountId);
-      if (current === undefined) return;
-      current.delete(onEvent);
-      if (current.size === 0) this.eventSubscribers.delete(accountId);
-    };
-  }
-
-  /** Test-only introspection */
-  hasOrder(orderId: string): boolean {
-    return this.orders.has(orderId);
-  }
-
-  /** Test-only introspection */
-  subscriberCount(accountId: string): number {
-    return this.eventSubscribers.get(accountId)?.size ?? 0;
   }
 
   private emit(accountId: string, event: OrderEvent): void {
-    const subs = this.eventSubscribers.get(accountId);
-    if (subs === undefined) return;
-    for (const cb of subs) {
+    const set = this.subscribers.get(accountId);
+    if (set === undefined) return;
+    for (const handler of set) {
       try {
-        cb(event);
-      } catch (err) {
-        this.logger.error(
-          `Order event subscriber for ${accountId} threw: ${String(err)}`,
-        );
+        handler(event);
+      } catch {
+        // Don't let one bad subscriber take down the rest.
       }
     }
   }
 }
+
+// Re-export the DI token so consumers don't need to import from
+// `order-execution.types.ts` separately.
+export { ORDER_EXECUTION };
+export { TradeSide };

@@ -20,6 +20,11 @@ export const OrderSchema = z.object({
   filledPrice: z.number().finite().nonnegative().optional(),
   filledAt: z.string().optional(),
   rejectionReason: z.string().optional(),
+  /**
+   * Set when this order was placed on behalf of an AutomationItem.
+   * Used by TradeHistoryService to attribute fills in the Trade ledger.
+   */
+  automationItemId: z.string().min(1).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -29,6 +34,13 @@ export const PlaceOrderInputSchema = z.object({
   symbol: z.string().min(1),
   side: TradeSideSchema,
   qty: z.number().finite().positive(),
+  /**
+   * When set, the resulting Order carries this id through to the Trade
+   * ledger so the fill can be attributed back to the automation rule
+   * that triggered it. Manual orders (post-NCN-16 manual endpoint)
+   * will leave this undefined.
+   */
+  automationItemId: z.string().min(1).optional(),
 }).strict();
 
 export const OrderEventSchema = z.discriminatedUnion('kind', [
