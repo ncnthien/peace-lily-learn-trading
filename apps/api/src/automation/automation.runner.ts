@@ -108,7 +108,7 @@ export class AutomationRunner {
     );
     if (!holds) return 'skipped';
     const action = row.action as AutomationAction;
-    const placeInput = this.toPlaceOrderInput(action, row.accountId);
+    const placeInput = this.toPlaceOrderInput(action, row.accountId, row.id);
     if (placeInput === null) {
       this.logger.warn(
         `Item ${row.id} action is not an order placement; skipping`,
@@ -123,16 +123,20 @@ export class AutomationRunner {
    * Map AutomationAction → OrderExecution.placeOrder input. `buy` and
    * `sell` actions translate to a single order; `notify`/`none` don't
    * produce an order (not handled by NCN-13).
+   *
+   * `automationItemId` is threaded through to the resulting Order so
+   * TradeHistoryService can attribute the fill in the Trade ledger.
    */
   private toPlaceOrderInput(
     action: AutomationAction,
     accountId: string,
+    automationItemId: string,
   ): PlaceOrderInput | null {
     if (action.kind === 'buy') {
-      return { accountId, symbol: action.symbol, side: TradeSide.BUY, qty: action.qty };
+      return { accountId, symbol: action.symbol, side: TradeSide.BUY, qty: action.qty, automationItemId };
     }
     if (action.kind === 'sell') {
-      return { accountId, symbol: action.symbol, side: TradeSide.SELL, qty: action.qty };
+      return { accountId, symbol: action.symbol, side: TradeSide.SELL, qty: action.qty, automationItemId };
     }
     return null;
   }

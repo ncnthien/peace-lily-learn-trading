@@ -69,6 +69,28 @@ candle persistence and Prisma queries require Postgres.
 - Indicators: `apps/api/src/indicators/indicators.service.ts`
 - Shared types: `packages/shared/src/index.ts`
 
+## Architecture notes
+
+### Subscribe-based sources
+
+Two interfaces expose a `subscribe(filter, handler) → Unsubscribe` pattern (no RxJS dependency today):
+
+- `OrderExecution` (`apps/api/src/order-execution/order-execution.types.ts`) — fans order lifecycle events out to demo-balance + trade-history consumers.
+- `MarketDataSource` (`apps/api/src/market-data/market-data.types.ts`) — fans price ticks out to consumers (none yet).
+
+**When to migrate to RxJS** — adopt `rxjs` Subjects/Observables behind these APIs when any of these first becomes true:
+
+1. A second `MarketDataSource` subscriber appears (chart + S/R + automation all reading ticks).
+2. We need `throttleTime` / `bufferTime` / `scan` (e.g. "compute S/R levels from the last 5 minutes of ticks").
+3. We need replay (`shareReplay({ bufferSize: 50 })` — new subscriber gets the last 50 ticks).
+4. We need `merge` of multiple sources (tick stream + fill stream into a single market-activity view).
+
+Migration path is small: wrap each source's internal `Map<filter, Set<handler>>` with a `Subject<T>`, expose `subscribe()` returning a plain Observable, keep the current `subscribe(filter, handler) → Unsubscribe` API as a thin shim so existing consumers don't change.
+
+### Validation
+
+Cross-API shapes are Zod schemas in `packages/shared/src/schemas/`. See [VALIDATION.md](./VALIDATION.md) for the recipe (DTO → `@Body()` → service).
+
 ## Environment
 
 Copy `apps/api/.env.example` → `apps/api/.env` and

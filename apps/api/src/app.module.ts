@@ -15,6 +15,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { SRLinesModule } from './sr-lines/sr-lines.module.js';
 import { SignalsModule } from './signals/signals.module.js';
+import { TradesModule } from './trades/trades.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SignalsModule } from './signals/signals.module.js';
     AccountsModule,
     OrderExecutionModule,
     AutomationModule,
+    TradesModule,
   ],
   controllers: [AppController],
 })
