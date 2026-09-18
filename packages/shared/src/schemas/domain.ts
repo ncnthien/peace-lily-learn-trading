@@ -2,9 +2,9 @@ import { z } from 'zod';
 import {
   AccountStatus,
   AccountType,
-  Timeframe,
-  TradeSide,
-} from '../enums.js';
+} from '../enums/account.js';
+import { Timeframe } from '../enums/timeframe.js';
+import { TradeSide } from '../enums/trade.js';
 
 // ============================================================
 // Timeframes / enums — derived from the existing constants so the
