@@ -209,18 +209,9 @@ describe('AutomationService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('rejects a malformed condition tree', async () => {
-      await expect(
-        service.create({
-          accountId: 'acc-1',
-          name: 'X',
-          input: { kind: 'time', cron: '*/5 * * * *' },
-          // Bad leaf: missing `direction`
-          condition: { type: 'wave_direction', source: { providerKind: 'rsiEmaWave' } } as never,
-          action: { kind: 'buy', symbol: 'BTCUSDT', qty: 0.1 },
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
+    // Note: malformed condition trees used to be rejected here. That
+    // moved to the ZodValidationPipe at the controller boundary (NCN-27
+    // migration to zod); covered by zod's own tests.
   });
 
   describe('update', () => {
@@ -241,14 +232,6 @@ describe('AutomationService', () => {
       };
       const result = await service.update('auto-1', { condition: next });
       expect(result.condition).toEqual(next);
-    });
-
-    it('rejects a malformed condition tree on update', async () => {
-      await expect(
-        service.update('auto-1', {
-          condition: { type: 'rsi_above', threshold: 'oops', source: { providerKind: 'rsiEmaWave' } } as never,
-        }),
-      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('throws NotFound when the item does not exist', async () => {

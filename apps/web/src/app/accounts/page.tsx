@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import type {
+  CreateAccountDraft,
+  UpdateAccountPatch,
+} from '@workspace/shared';
 import {
   useAccounts,
-  type CreateAccountDraft,
-  type UpdateAccountPatch,
   type AccountRecord,
 } from '@/hooks/use-accounts';
 import { Button } from '@/components/ui/button';

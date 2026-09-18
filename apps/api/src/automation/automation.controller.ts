@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,47 +8,21 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import type {
-  AutomationInput,
-  AutomationItemStatus,
-  ConditionNode,
-} from '@workspace/shared';
+import { createZodDto } from 'nestjs-zod';
 import {
-  AUTOMATION_STATUSES,
+  CreateAutomationInputSchema,
+  UpdateAutomationInputSchema,
 } from '@workspace/shared';
-import {
-  AutomationService,
-  CreateAutomationInput,
-  UpdateAutomationInput,
-} from './automation.service.js';
+import { AutomationService } from './automation.service.js';
 
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== 'string') {
-    throw new BadRequestException(`${field} must be a string`);
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new BadRequestException(`${field} must not be empty`);
-  }
-  return trimmed;
-}
-
-function requireStatus(value: unknown): AutomationItemStatus {
-  if (
-    typeof value !== 'string' ||
-    !(AUTOMATION_STATUSES as readonly string[]).includes(value)
-  ) {
-    throw new BadRequestException(
-      `status must be one of: ${AUTOMATION_STATUSES.join(', ')}`,
-    );
-  }
-  return value as AutomationItemStatus;
-}
-
-function optionalStatus(value: unknown): AutomationItemStatus | undefined {
-  if (value === undefined) return undefined;
-  return requireStatus(value);
-}
+/**
+ * Zod DTOs — the schema is the source of truth; the DTO class exists so
+ * NestJS's ZodValidationPipe (registered globally in main.ts) can read
+ * the schema off the @Body() parameter type via reflection. The TS
+ * shape of a DTO instance is identical to `z.infer<typeof Schema>`.
+ */
+class CreateAutomationDto extends createZodDto(CreateAutomationInputSchema) {}
+class UpdateAutomationDto extends createZodDto(UpdateAutomationInputSchema) {}
 
 @Controller('automation')
 export class AutomationController {
@@ -68,60 +41,16 @@ export class AutomationController {
   }
 
   @Post()
-  create(
-    @Body()
-    body: {
-      accountId?: unknown;
-      name?: unknown;
-      input?: unknown;
-      condition?: unknown;
-      action?: unknown;
-      output?: unknown;
-      status?: unknown;
-    },
-  ) {
-    if (body.input === undefined) {
-      throw new BadRequestException('input is required');
-    }
-    if (body.condition === undefined) {
-      throw new BadRequestException('condition is required');
-    }
-    if (body.action === undefined) {
-      throw new BadRequestException('action is required');
-    }
-    const input: CreateAutomationInput = {
-      accountId: requireString(body.accountId, 'accountId'),
-      name: requireString(body.name, 'name'),
-      input: body.input as AutomationInput,
-      condition: body.condition as ConditionNode,
-      action: body.action,
-      output: body.output,
-      status: optionalStatus(body.status),
-    };
-    return this.automation.create(input);
+  create(@Body() body: CreateAutomationDto) {
+    return this.automation.create(body);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body()
-    body: {
-      name?: unknown;
-      input?: unknown;
-      condition?: unknown;
-      action?: unknown;
-      output?: unknown;
-      status?: unknown;
-    },
+    @Body() body: UpdateAutomationDto,
   ) {
-    const patch: UpdateAutomationInput = {};
-    if (body.name !== undefined) patch.name = requireString(body.name, 'name');
-    if (body.input !== undefined) patch.input = body.input as AutomationInput;
-    if (body.condition !== undefined) patch.condition = body.condition as ConditionNode;
-    if (body.action !== undefined) patch.action = body.action;
-    if (body.output !== undefined) patch.output = body.output;
-    if (body.status !== undefined) patch.status = requireStatus(body.status);
-    return this.automation.update(id, patch);
+    return this.automation.update(id, body);
   }
 
   @Delete(':id')

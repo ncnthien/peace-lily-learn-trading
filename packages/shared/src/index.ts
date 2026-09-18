@@ -1,27 +1,76 @@
-export const Timeframe = {
-  ONE_MINUTE: '1m',
-  FIVE_MINUTES: '5m',
-  FIFTEEN_MINUTES: '15m',
-  ONE_HOUR: '1h',
-  FOUR_HOURS: '4h',
-  ONE_DAY: '1d',
-  TWO_DAYS: '2d',
-  THREE_DAYS: '3d',
-  FOUR_DAYS: '4d',
-  FIVE_DAYS: '5d',
-  SIX_DAYS: '6d',
-  ONE_WEEK: '1w',
-} as const;
+// Import schema-driven types AND enums into local scope (re-export-only
+// imports aren't visible within this file for declarations).
+import type { ConditionSource } from './schemas/index.js';
+import {
+  Timeframe,
+  Signal,
+  AccountType,
+  AccountStatus,
+  TradeSide,
+  OrderStatus,
+  AutomationItemStatus,
+  AUTOMATION_STATUSES,
+} from './enums.js';
+export {
+  Timeframe,
+  Signal,
+  AccountType,
+  AccountStatus,
+  TradeSide,
+  OrderStatus,
+  AutomationItemStatus,
+  AUTOMATION_STATUSES,
+} from './enums.js';
 
-export type Timeframe = (typeof Timeframe)[keyof typeof Timeframe];
+// Re-export the schema-driven types AND the Zod schemas themselves.
+// The schemas are the runtime source of truth; the types are inferred.
+// Both consumers (`@workspace/api` for ValidationPipe decorators,
+// `apps/web` for client-side validation) import from this module.
+export type {
+  Account,
+  CreateAccountDraft,
+  UpdateAccountPatch,
+  Order,
+  PlaceOrderInput,
+  OrderEvent,
+  AutomationInput,
+  ConditionSource,
+  LeafCondition,
+  CompositeCondition,
+  ConditionNode,
+  AutomationAction,
+  AutomationOutput,
+  AutomationItem,
+  CreateAutomationInput,
+  UpdateAutomationInput,
+  TimeConfig,
+} from './schemas/index.js';
 
-export const Signal = {
-  BUY: 'BUY',
-  SELL: 'SELL',
-  HOLD: 'HOLD',
-} as const;
-
-export type Signal = (typeof Signal)[keyof typeof Signal];
+export {
+  AccountSchema,
+  CreateAccountDraftSchema,
+  UpdateAccountPatchSchema,
+  OrderSchema,
+  PlaceOrderInputSchema,
+  OrderEventSchema,
+  AutomationInputSchema,
+  ConditionSourceSchema,
+  LeafConditionSchema,
+  CompositeConditionSchema,
+  ConditionNodeSchema,
+  AutomationActionSchema,
+  AutomationOutputSchema,
+  AutomationItemSchema,
+  AutomationItemStatusSchema,
+  CreateAutomationInputSchema,
+  UpdateAutomationInputSchema,
+  TimeConfigSchema,
+  TimeframeSchema,
+  AccountTypeSchema,
+  AccountStatusSchema,
+  TradeSideSchema,
+  OrderStatusSchema,
+} from './schemas/index.js';
 
 export interface Candle {
   openTime: number;
@@ -69,45 +118,8 @@ export interface PriceTick {
 /** Subscription handle — call to stop receiving updates (idempotent) */
 export type Unsubscribe = () => void;
 
-// ============================================================
-// NCN-5: Core domain schema
-// Contract-only — consumed by the Account, PnL and Automation
-// modules. Implementation comes with those epics.
-// ============================================================
-
-export const AccountType = {
-  REAL: 'real',
-  DEMO: 'demo',
-} as const;
-export type AccountType = (typeof AccountType)[keyof typeof AccountType];
-
-export const AccountStatus = {
-  ACTIVE: 'active',
-  DISABLED: 'disabled',
-} as const;
-export type AccountStatus = (typeof AccountStatus)[keyof typeof AccountStatus];
-
-/** Trading account — real (broker/exchange) or demo (paper money) */
-export interface Account {
-  id: string;
-  /** Display name (required, unique-per-user conceptually but not enforced at DB level) */
-  name: string;
-  type: AccountType;
-  /** Quote-currency balance available for trading */
-  balance: number;
-  status: AccountStatus;
-  /** ISO timestamps */
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const TradeSide = {
-  BUY: 'buy',
-  SELL: 'sell',
-} as const;
-export type TradeSide = (typeof TradeSide)[keyof typeof TradeSide];
-
-/** Executed trade — append-only ledger entry, never mutated */
+/** Executed trade — append-only ledger entry, never mutated.
+ * Kept as an interface (not on the API boundary yet). */
 export interface Trade {
   id: string;
   accountId: string;
@@ -121,7 +133,8 @@ export interface Trade {
   automationItemId?: string;
 }
 
-/** Open position per account + symbol, carrying unrealized state */
+/** Open position per account + symbol, carrying unrealized state.
+ * Kept as an interface (not on the API boundary yet). */
 export interface Position {
   id: string;
   accountId: string;
@@ -138,136 +151,11 @@ export interface Position {
 }
 
 // ============================================================
-// NCN-7: Order/Execution abstraction — order lifecycle contract.
-// Consumed by Automation action executor (NCN-16) and manual order
-// entry. The OrderExecution interface itself lives in apps/api
-// (NestJS DI concern); the data shape is shared so other modules
-// can consume orders without depending on the API package.
+// EvalContext — kept as a hand-written interface because it stays an
+// internal engine-only type (never crosses the HTTP boundary). The
+// leaf types above are schema-driven.
 // ============================================================
 
-export const OrderStatus = {
-  PENDING: 'pending',
-  FILLED: 'filled',
-  CANCELLED: 'cancelled',
-  REJECTED: 'rejected',
-} as const;
-export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
-
-/**
- * Order lifecycle — pending → (filled | cancelled | rejected). The mock
- * implementation fills instantly for demo accounts; real broker impls
- * will spend time in PENDING before transitioning to FILLED.
- */
-export interface Order {
-  id: string;
-  accountId: string;
-  symbol: string;
-  side: TradeSide;
-  /** Quantity placed (always positive; side determines direction) */
-  qty: number;
-  status: OrderStatus;
-  /** Set when status transitions to FILLED */
-  filledPrice?: number;
-  filledAt?: string;
-  /** Set when status is REJECTED */
-  rejectionReason?: string;
-  /** ISO timestamps */
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Input to placeOrder. Price is not provided — execution determines it. */
-export interface PlaceOrderInput {
-  accountId: string;
-  symbol: string;
-  side: TradeSide;
-  qty: number;
-}
-
-/**
- * Lifecycle event emitted by OrderExecution subscriptions.
- * - placed: order accepted by the broker (status=PENDING). Fires before fill.
- * - filled: order fully filled.
- * - cancelled: order cancelled (by us or broker).
- * - rejected: order rejected at submission (validation or broker-side).
- *
- * For demo accounts (instant fill), placed and fired fire back-to-back.
- * For real broker accounts, placed fires first and filled/cancelled arrives
- * asynchronously when the broker confirms.
- */
-export type OrderEvent =
-  | { kind: 'placed'; order: Order }
-  | { kind: 'filled'; order: Order }
-  | { kind: 'cancelled'; order: Order }
-  | { kind: 'rejected'; order: Order };
-
-/**
- * Automation input provider — the event source that can trigger the item.
- * Kinds follow the Automation epic's provider backlog:
- * wave detection (RSI/EMA crossover), support/resistance touch, time trigger.
- */
-export type AutomationInput =
-  | { kind: 'rsiEmaWave'; symbol: string; interval: Timeframe }
-  | {
-      kind: 'supportResistance';
-      symbol: string;
-      interval: Timeframe;
-      /** Minimum cluster touches for a level to count as touched */
-      minTouches: number;
-    }
-  | { kind: 'time'; cron: string };
-
-// ============================================================
-// NCN-27: Condition tree — single ConditionNode JSON-serializable
-// expression walked by the rule engine. Replaces the flat
-// `AutomationCondition[]` (NCN-12) and the `ConfluenceRule` predicate
-// composition. The same evaluate() is used by live automation and
-// backtest, so any context-aware comparison (RSI threshold, wave
-// direction/phase, time-range containment) is expressed here.
-// ============================================================
-
-/**
- * Identifies which provider output a leaf should be evaluated against.
- * Matches a NormalizedSignal (providerKind + optional timeframe + symbol)
- * or a numeric indicator at the same coordinates.
- */
-export interface ConditionSource {
-  providerKind: string;
-  timeframe?: string;
-  symbol?: string;
-}
-
-/**
- * Atomic condition checked against one provider's output. Each leaf
- * carries its own `source` so different leaves can target different
- * providers / timeframes / symbols within a single tree.
- */
-export type LeafCondition =
-  /** RSI value (looked up from EvalContext.indicators) is strictly greater than `threshold` */
-  | { type: 'rsi_above'; threshold: number; source: ConditionSource }
-  /** RSI value is strictly less than `threshold` */
-  | { type: 'rsi_below'; threshold: number; source: ConditionSource }
-  /** Matching NormalizedSignal.direction equals `direction` */
-  | { type: 'wave_direction'; direction: AutomationDirection; source: ConditionSource }
-  /** Matching NormalizedSignal.timeRange is fully contained inside `timeRange` */
-  | { type: 'wave_contained_in'; timeRange: { start: number; end: number }; source: ConditionSource }
-  /** Matching NormalizedSignal.phase is NOT equal to `phase` */
-  | { type: 'wave_phase_not'; phase: AutomationPhase; source: ConditionSource };
-
-/** Boolean combination of child nodes — recursive */
-export interface CompositeCondition {
-  operator: 'and' | 'or';
-  children: ConditionNode[];
-}
-
-/** Any node in the condition tree. JSON-serializable; no functions or refs. */
-export type ConditionNode = LeafCondition | CompositeCondition;
-
-/**
- * Per-evaluation context passed to ConditionEvaluator.evaluate(). Carries
- * everything the leaves need to look up — same shape for live runs and
- * backtest, so the engine is reusable.
- */
 export interface EvalContext {
   /** All normalized signals currently in scope */
   signals: NormalizedSignal[];
@@ -290,46 +178,6 @@ export function indicatorKey(source: ConditionSource): string {
   return `${source.providerKind}:${source.timeframe ?? ''}:${source.symbol ?? ''}`;
 }
 
-/** Order placed through the Order/Execution abstraction when the item triggers */
-export type AutomationAction =
-  | { kind: 'buy'; symbol: string; qty: number }
-  | { kind: 'sell'; symbol: string; qty: number };
-
-/** What the item emits besides the action itself */
-export type AutomationOutput =
-  | { kind: 'none' }
-  | { kind: 'notify'; message: string };
-
-export const AutomationItemStatus = {
-  ENABLED: 'enabled',
-  DISABLED: 'disabled',
-  PAUSED: 'paused',
-} as const;
-export type AutomationItemStatus =
-  (typeof AutomationItemStatus)[keyof typeof AutomationItemStatus];
-
-/** Runtime array of allowed status values; useful for validation. */
-export const AUTOMATION_STATUSES = Object.values(AutomationItemStatus);
-
-/** User-configurable automation: input → condition tree → action + output */
-export interface AutomationItem {
-  id: string;
-  accountId: string;
-  name: string;
-  input: AutomationInput;
-  /**
-   * Condition tree evaluated against an EvalContext. The rule engine
-   * walks this recursively; AND/OR composition is expressed inline
-   * via CompositeCondition (NCN-27).
-   */
-  condition: ConditionNode;
-  action: AutomationAction;
-  output: AutomationOutput;
-  status: AutomationItemStatus;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** Supported signal degrees (scale/timeframe classification) */
 export type AutomationDegree = 'macro' | 'micro' | string;
 
@@ -344,8 +192,6 @@ export type AutomationDirection = 'up' | 'down';
  * Every provider's raw output is converted to this so leaves in the
  * ConditionNode tree can match signals from different sources without
  * knowing how each was produced.
- *
- * See NCN-12: Provider → Normalizer → Confluence architecture.
  */
 export interface NormalizedSignal {
   direction: AutomationDirection;

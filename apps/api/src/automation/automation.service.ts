@@ -8,34 +8,17 @@ import type {
   AutomationItem,
   AutomationItemStatus,
   ConditionNode,
+  CreateAutomationInput,
+  UpdateAutomationInput,
 } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 
-export interface CreateAutomationInput {
-  accountId: string;
-  name: string;
-  /** Raw input config (will be validated by the matching Provider) */
-  input: AutomationInput;
-  /**
-   * Condition tree walked by ConditionEvaluator (NCN-27). A bare leaf is
-   * valid; composite nodes AND/OR over nested children.
-   */
-  condition: ConditionNode;
-  action: unknown;
-  output?: unknown;
-  status?: AutomationItemStatus;
-}
-
-export interface UpdateAutomationInput {
-  name?: string;
-  input?: AutomationInput;
-  condition?: ConditionNode;
-  action?: unknown;
-  output?: unknown;
-  status?: AutomationItemStatus;
-}
+// Re-export the schema-derived types so the existing controller import
+// path (`CreateAutomationInput`, `UpdateAutomationInput` from this
+// module) keeps working without churn.
+export type { CreateAutomationInput, UpdateAutomationInput };
 
 interface AutomationRow {
   id: string;
@@ -74,23 +57,21 @@ export class AutomationService {
   }
 
   /**
-   * Create an automation item. Validates the input config against the
-   * matching Provider, and validates the condition tree shape against the
-   * ConditionEvaluator before persisting. Throws BadRequest on either
-   * failure.
+   * Create an automation item. The body has already been validated by
+   * ZodValidationPipe at the controller boundary — the schema rejects
+   * malformed `input`, `condition`, `action`, and `output` shapes
+   * before the handler runs. We still call `validateInput` here to
+   * provider-specific normalisation (cron parse, symbol validation,
+   * etc.) which is provider-implementation-specific.
    */
   async create(input: CreateAutomationInput): Promise<AutomationItem> {
     const validatedInput = this.validateInput(input.input);
-    const validatedCondition = this.validateCondition(input.condition);
     const created = await this.prisma.automationItem.create({
       data: {
         accountId: input.accountId,
         name: input.name,
         input: validatedInput,
-        // Cast to Prisma's InputJsonValue — the strict ConditionSource
-        // discriminated union has no index signature, but JSON shape
-        // matches at runtime (assertShape above already validated it).
-        condition: validatedCondition as unknown as object,
+        condition: input.condition as unknown as object,
         action: input.action as object,
         output: (input.output ?? { kind: 'none' }) as object,
         status: input.status ?? 'enabled',
@@ -103,7 +84,7 @@ export class AutomationService {
     const data: Record<string, unknown> = {};
     if (patch.name !== undefined) data.name = patch.name;
     if (patch.input !== undefined) data.input = this.validateInput(patch.input);
-    if (patch.condition !== undefined) data.condition = this.validateCondition(patch.condition);
+    if (patch.condition !== undefined) data.condition = patch.condition;
     if (patch.action !== undefined) data.action = patch.action;
     if (patch.output !== undefined) data.output = patch.output;
     if (patch.status !== undefined) data.status = patch.status;
@@ -139,29 +120,13 @@ export class AutomationService {
     return { kind: input.kind, ...params } as AutomationInput;
   }
 
-  /**
-   * Validate the condition tree shape. The ConditionEvaluator doesn't
-   * throw on bad shapes — it fails closed (returns false) — so the API
-   * layer needs a separate shape check to surface malformed trees as
-   * 400 Bad Request instead of silently failing at evaluation time.
-   */
-  private validateCondition(condition: ConditionNode): ConditionNode {
-    try {
-      this.conditionEvaluator.assertShape(condition);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'invalid condition tree';
-      throw new BadRequestException(`condition: ${message}`);
-    }
-    return condition;
-  }
-
   private toDto(row: AutomationRow): AutomationItem {
     return {
       id: row.id,
       accountId: row.accountId,
       name: row.name,
       input: row.input as AutomationItem['input'],
-      condition: row.condition as AutomationItem['condition'],
+      condition: row.condition as ConditionNode,
       action: row.action as AutomationItem['action'],
       output: row.output as AutomationItem['output'],
       status: row.status as AutomationItemStatus,

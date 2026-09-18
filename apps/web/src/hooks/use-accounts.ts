@@ -2,6 +2,13 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
+import {
+  CreateAccountDraftSchema,
+  UpdateAccountPatchSchema,
+  type CreateAccountDraft,
+  type UpdateAccountPatch,
+} from '@workspace/shared';
+import { ZodError } from 'zod';
 
 import {
   apiGet,
@@ -10,6 +17,24 @@ import {
   updateAccount,
   type AccountRecord,
 } from '@/lib/api';
+
+/**
+ * Thin client-side guards. The server is still the source of truth
+ * (ZodValidationPipe at the controller boundary rejects the same bad
+ * inputs as 400 Bad Request). These wrappers exist so bad inputs fail
+ * at the call site with a precise message instead of round-tripping to
+ * the server and back.
+ */
+function parseOrThrow<T>(schema: { parse: (v: unknown) => T }, value: unknown, label: string): T {
+  try {
+    return schema.parse(value);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new Error(`${label}: ${err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`);
+    }
+    throw err;
+  }
+}
 
 // ----- GET fetcher (local to this hook) -----
 
@@ -23,17 +48,6 @@ export async function fetchAccounts(
 }
 
 // ----- Hook -----
-
-export interface CreateAccountDraft {
-  name: string;
-  type: 'real' | 'demo';
-  balance?: number;
-}
-
-export type UpdateAccountPatch = {
-  name?: string;
-  status?: 'active' | 'disabled';
-};
 
 export function useAccounts(filter?: { type?: 'real' | 'demo' }) {
   const queryClient = useQueryClient();
@@ -49,13 +63,17 @@ export function useAccounts(filter?: { type?: 'real' | 'demo' }) {
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: (draft: CreateAccountDraft) => createAccount(draft),
+    mutationFn: (draft: CreateAccountDraft) =>
+      createAccount(parseOrThrow(CreateAccountDraftSchema, draft, 'create account draft')),
     onSuccess: invalidate,
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: UpdateAccountPatch }) =>
-      updateAccount(id, patch),
+      updateAccount(
+        id,
+        parseOrThrow(UpdateAccountPatchSchema, patch, 'update account patch'),
+      ),
     onSuccess: invalidate,
   });
 
