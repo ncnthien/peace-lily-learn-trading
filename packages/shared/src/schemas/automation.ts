@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import {
-  AutomationItemStatus,
   AUTOMATION_STATUSES,
-} from '../enums.js';
+  AutomationItemStatus,
+} from '../enums/automation.js';
 import { TimeframeSchema } from './domain.js';
 
 export const AutomationItemStatusSchema = z.enum(

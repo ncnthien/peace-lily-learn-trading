@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { OrderStatus } from '../enums.js';
+import { OrderStatus } from '../enums/order.js';
 import { TradeSideSchema } from './domain.js';
 
 // ============================================================

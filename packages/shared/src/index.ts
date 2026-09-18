@@ -1,26 +1,28 @@
 // Import schema-driven types AND enums into local scope (re-export-only
-// imports aren't visible within this file for declarations).
+// imports aren't visible within this file for declarations). The enum
+// constants live in ./enums/<domain>.ts — one file per domain, mirroring
+// the schemas/ structure.
 import type { ConditionSource } from './schemas/index.js';
 import {
-  Timeframe,
-  Signal,
-  AccountType,
-  AccountStatus,
-  TradeSide,
-  OrderStatus,
-  AutomationItemStatus,
   AUTOMATION_STATUSES,
-} from './enums.js';
+  AccountStatus,
+  AccountType,
+  AutomationItemStatus,
+  OrderStatus,
+  Signal,
+  Timeframe,
+  TradeSide,
+} from './enums/index.js';
 export {
-  Timeframe,
-  Signal,
-  AccountType,
-  AccountStatus,
-  TradeSide,
-  OrderStatus,
-  AutomationItemStatus,
   AUTOMATION_STATUSES,
-} from './enums.js';
+  AccountStatus,
+  AccountType,
+  AutomationItemStatus,
+  OrderStatus,
+  Signal,
+  Timeframe,
+  TradeSide,
+} from './enums/index.js';
 
 // Re-export the schema-driven types AND the Zod schemas themselves.
 // The schemas are the runtime source of truth; the types are inferred.
