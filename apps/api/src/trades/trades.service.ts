@@ -107,6 +107,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     qty: number;
     filledPrice?: number;
     filledAt?: string;
+    fee?: number;
     automationItemId?: string;
   }): Promise<void> {
     if (order.filledPrice === undefined || order.filledAt === undefined) {
@@ -124,6 +125,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
         side: order.side,
         price: order.filledPrice,
         qty: order.qty,
+        fee: order.fee ?? null,
         timestamp: new Date(order.filledAt),
         automationItemId: order.automationItemId ?? null,
       },
@@ -137,6 +139,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
     side: string;
     price: number;
     qty: number;
+    fee: number | null;
     timestamp: Date;
     automationItemId: string | null;
   }): Trade {
@@ -147,6 +150,7 @@ export class TradesService implements OnModuleInit, OnModuleDestroy {
       side: row.side as Trade['side'],
       price: row.price,
       qty: row.qty,
+      fee: row.fee ?? undefined,
       timestamp: row.timestamp.toISOString(),
       automationItemId: row.automationItemId ?? undefined,
     };

@@ -47,6 +47,9 @@ export type {
   CreateAutomationInput,
   UpdateAutomationInput,
   TimeConfig,
+  ClosedLotMatch,
+  RealizedPnlMatch,
+  RealizedPnlSummary,
 } from './schemas/index.js';
 
 export {
@@ -69,6 +72,9 @@ export {
   CreateAutomationInputSchema,
   UpdateAutomationInputSchema,
   TimeConfigSchema,
+  ClosedLotMatchSchema,
+  RealizedPnlMatchSchema,
+  RealizedPnlSummarySchema,
   TimeframeSchema,
   AccountTypeSchema,
   AccountStatusSchema,

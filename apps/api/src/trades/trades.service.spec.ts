@@ -8,6 +8,7 @@ interface TradeRow {
   side: string;
   price: number;
   qty: number;
+  fee: number | null;
   timestamp: Date;
   automationItemId: string | null;
 }
@@ -43,8 +44,8 @@ function makePrismaMock(opts: { accounts: AccountRow[]; trades: TradeRow[] }) {
           .filter((r) => r.accountId === args.where.accountId)
           .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
       ),
-      create: vi.fn(async (args: { data: Omit<TradeRow, 'timestamp'> & { timestamp: Date } }) => {
-        const row: TradeRow = { ...args.data };
+      create: vi.fn(async (args: { data: Omit<TradeRow, 'timestamp' | 'fee'> & { timestamp: Date; fee?: number | null } }) => {
+        const row: TradeRow = { ...args.data, fee: args.data.fee ?? null };
         tradeStore.set(row.id, row);
         return row;
       }),
@@ -137,9 +138,9 @@ describe('TradesService (NCN-19)', () => {
     prisma = makePrismaMock({
       accounts: [{ id: 'acc-1', type: 'demo' }],
       trades: [
-        { id: 't1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, timestamp: new Date(base - 200), automationItemId: null },
-        { id: 't2', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 51_000, qty: 0.02, timestamp: new Date(base - 100), automationItemId: 'item-1' },
-        { id: 't3', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'sell', price: 52_000, qty: 0.03, timestamp: new Date(base), automationItemId: null },
+        { id: 't1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, fee: null, timestamp: new Date(base - 200), automationItemId: null },
+        { id: 't2', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 51_000, qty: 0.02, fee: null, timestamp: new Date(base - 100), automationItemId: 'item-1' },
+        { id: 't3', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'sell', price: 52_000, qty: 0.03, fee: null, timestamp: new Date(base), automationItemId: null },
       ],
     });
     service = new TradesService(
@@ -159,8 +160,8 @@ describe('TradesService (NCN-19)', () => {
         { id: 'acc-2', type: 'demo' },
       ],
       trades: [
-        { id: 't1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, timestamp: new Date(), automationItemId: null },
-        { id: 't2', accountId: 'acc-2', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, timestamp: new Date(), automationItemId: null },
+        { id: 't1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, fee: null, timestamp: new Date(), automationItemId: null },
+        { id: 't2', accountId: 'acc-2', symbol: 'BTCUSDT', side: 'buy', price: 50_000, qty: 0.01, fee: null, timestamp: new Date(), automationItemId: null },
       ],
     });
     service = new TradesService(

@@ -10,6 +10,7 @@ import { MarketDataModule } from './market-data/market-data.module.js';
 import { OrderExecutionModule } from './order-execution/order-execution.module.js';
 import { PriceSyncModule } from './price-sync/price-sync.module.js';
 import { PricesModule } from './prices/prices.module.js';
+import { PnlModule } from './pnl/pnl.module.js';
 import { PositionsModule } from './positions/positions.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SettingsModule } from './settings/settings.module.js';
@@ -34,6 +35,7 @@ import { TradesModule } from './trades/trades.module.js';
     OrderExecutionModule,
     AutomationModule,
     TradesModule,
+    PnlModule,
   ],
   controllers: [AppController],
 })
