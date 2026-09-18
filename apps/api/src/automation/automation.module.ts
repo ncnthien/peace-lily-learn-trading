@@ -9,6 +9,7 @@ import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
 @Module({
   imports: [OrderExecutionModule],
+  controllers: [AutomationController],
   providers: [
     // The registry must be constructed before providers so they can
     // self-register in their constructors.
@@ -17,7 +18,6 @@ import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
     ConditionEvaluator,
     AutomationService,
     AutomationRunner,
-    AutomationController,
   ],
   exports: [
     ProviderRegistry,
