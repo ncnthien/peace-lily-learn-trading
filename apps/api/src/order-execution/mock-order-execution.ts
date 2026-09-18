@@ -75,6 +75,7 @@ export class MockOrderExecution implements OrderExecution {
       side: normalized.side,
       qty: normalized.qty,
       status: OrderStatus.PENDING,
+      fee: normalized.fee,
       automationItemId: normalized.automationItemId,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),

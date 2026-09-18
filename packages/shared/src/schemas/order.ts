@@ -21,6 +21,12 @@ export const OrderSchema = z.object({
   filledAt: z.string().optional(),
   rejectionReason: z.string().optional(),
   /**
+   * Fees paid on this fill, in the same quote currency as `filledPrice`.
+   * Threaded through to the Trade ledger so the PnL FIFO matcher
+   * (NCN-20) can deduct fees from realized PnL.
+   */
+  fee: z.number().finite().nonnegative().optional(),
+  /**
    * Set when this order was placed on behalf of an AutomationItem.
    * Used by TradeHistoryService to attribute fills in the Trade ledger.
    */
@@ -41,6 +47,12 @@ export const PlaceOrderInputSchema = z.object({
    * will leave this undefined.
    */
   automationItemId: z.string().min(1).optional(),
+  /**
+   * Fees to charge on this fill, propagated to the Trade ledger for
+   * realized-PnL computation (NCN-20). Optional — defaults to 0 when
+   * absent so the FIFO matcher treats the fill as fee-free.
+   */
+  fee: z.number().finite().nonnegative().optional(),
 }).strict();
 
 export const OrderEventSchema = z.discriminatedUnion('kind', [
