@@ -1,8 +1,11 @@
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { TimeProvider } from './providers/time.provider.js';
+import { SRProvider } from './providers/sr.provider.js';
 import { AutomationRunner } from './automation.runner.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 import { MockOrderExecution } from '../order-execution/mock-order-execution.js';
+import type { MarketDataSource } from '../market-data/market-data.types.js';
+import type { Candle } from '@workspace/shared';
 
 interface ItemRow {
   id: string;
@@ -227,5 +230,83 @@ describe('AutomationRunner', () => {
     // Both runs produce an order — that's by design for NCN-13; future
     // tickets add per-tick debouncing in the runner.
     expect(second.fired + second.skipped + second.errors).toBe(1);
+  });
+
+  it('flattens a provider that returns multiple NormalizedSignals (NCN-14 SR provider)', async () => {
+    // Wire up an SRProvider backed by a tiny MarketData mock so the
+    // runner exercises the array-returning normalize() path.
+    const candles: Candle[] = Array.from({ length: 60 }, (_, i) => ({
+      openTime: i * 60_000,
+      open: 100,
+      high: i === 20 ? 150 : 100,
+      low: i === 40 ? 50 : 100,
+      close: 100,
+      volume: 1,
+      closeTime: i * 60_000 + 59_999,
+    }));
+    const marketData: MarketDataSource = {
+      getCandles: vi.fn(async () => candles),
+      subscribe: vi.fn(() => () => {}),
+      getLatestPrice: vi.fn(async () => 100),
+      shutdown: vi.fn(),
+    };
+    new SRProvider(registry, marketData);
+
+    // Condition uses legacy_pass (matches any non-empty signals array).
+    // The provider must return ≥ 1 zone for the run to fire.
+    prisma = makePrismaMock([
+      makeRow({
+        input: { kind: 'supportResistance', symbol: 'BTCUSDT', interval: '1h', minTouches: 1 },
+        condition: { type: 'legacy_pass' },
+      }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      orders,
+    );
+
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.fired).toBe(1);
+  });
+
+  it('skips an SRProvider-driven item when the detector finds no zones', async () => {
+    const marketData: MarketDataSource = {
+      getCandles: vi.fn(async () =>
+        Array.from({ length: 60 }, (_, i) => ({
+          openTime: i * 60_000,
+          open: 100,
+          high: 100,
+          low: 100,
+          close: 100,
+          volume: 1,
+          closeTime: i * 60_000 + 59_999,
+        })),
+      ),
+      subscribe: vi.fn(() => () => {}),
+      getLatestPrice: vi.fn(async () => 100),
+      shutdown: vi.fn(),
+    };
+    new SRProvider(registry, marketData);
+
+    prisma = makePrismaMock([
+      makeRow({
+        input: { kind: 'supportResistance', symbol: 'BTCUSDT', interval: '1h', minTouches: 1 },
+        condition: { type: 'legacy_pass' },
+      }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      orders,
+    );
+
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.skipped).toBe(1);
+    expect(summary.fired).toBe(0);
   });
 });

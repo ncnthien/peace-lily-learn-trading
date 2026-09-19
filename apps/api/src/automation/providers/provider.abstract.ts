@@ -44,6 +44,17 @@ export abstract class Provider<TConfig, TRawSignal> {
    */
   abstract evaluate(ctx: ProviderContext & { config: TConfig }): Promise<TRawSignal | null>;
 
-  /** Convert the raw signal to the shared NormalizedSignal shape. */
-  abstract normalize(raw: TRawSignal, ctx: ProviderContext): NormalizedSignal;
+  /**
+   * Convert the raw signal to the shared NormalizedSignal shape.
+   *
+   * Most providers emit exactly one NormalizedSignal per evaluation
+   * (e.g. {@link TimeProvider}). Providers whose raw signal represents
+   * multiple distinct events — currently SRProvider, which detects
+   * N zones — return an array; the runner flattens both shapes into
+   * EvalContext.signals.
+   */
+  abstract normalize(
+    raw: TRawSignal,
+    ctx: ProviderContext,
+  ): NormalizedSignal | NormalizedSignal[];
 }

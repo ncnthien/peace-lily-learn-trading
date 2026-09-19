@@ -100,8 +100,14 @@ export class AutomationRunner {
     const config = provider.validateConfig(input);
     const rawSignal = await provider.evaluate({ config, now, symbol: undefined, timeframe: undefined });
     if (rawSignal === null) return 'skipped';
-    const signal = provider.normalize(rawSignal, { now });
-    const ctx: EvalContext = { signals: [signal satisfies NormalizedSignal], now };
+    const normalized = provider.normalize(rawSignal, { now });
+    // Providers can emit one signal (most) or many (multi-event sources
+    // like SRProvider with N zones). Flatten to a single array so the
+    // rule engine sees a uniform `signals: NormalizedSignal[]`.
+    const signals: NormalizedSignal[] = Array.isArray(normalized)
+      ? normalized
+      : [normalized];
+    const ctx: EvalContext = { signals, now };
     const holds = this.conditionEvaluator.evaluate(
       row.condition as ConditionNode,
       ctx,
