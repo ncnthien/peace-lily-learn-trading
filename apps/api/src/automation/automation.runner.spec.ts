@@ -3,6 +3,7 @@ import { TimeProvider } from './providers/time.provider.js';
 import { SRProvider } from './providers/sr.provider.js';
 import { WaveProvider } from './providers/wave.provider.js';
 import { AutomationRunner } from './automation.runner.js';
+import { ActionExecutor } from './action-executor.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 import { MockOrderExecution } from '../order-execution/mock-order-execution.js';
 import type { MarketDataSource } from '../market-data/market-data.types.js';
@@ -42,6 +43,7 @@ describe('AutomationRunner', () => {
   let orders: MockOrderExecution;
   let prisma: ReturnType<typeof makePrismaMock>;
   let runner: AutomationRunner;
+  let actionExecutor: ActionExecutor;
 
   beforeEach(() => {
     registry = new ProviderRegistry();
@@ -49,12 +51,13 @@ describe('AutomationRunner', () => {
     evaluator = new ConditionEvaluator();
     orders = new MockOrderExecution();
     orders.setFillPrice('BTCUSDT', 50_000);
+    actionExecutor = new ActionExecutor(orders);
     prisma = makePrismaMock([]);
     runner = new AutomationRunner(
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
   });
 
@@ -64,7 +67,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -88,7 +91,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     // Use a minute that is definitely not :00 in UTC by skipping ahead if needed.
@@ -116,7 +119,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -131,7 +134,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -146,7 +149,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -170,7 +173,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -202,7 +205,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -219,7 +222,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -265,7 +268,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -302,7 +305,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -345,7 +348,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;
@@ -383,7 +386,7 @@ describe('AutomationRunner', () => {
       prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
       registry,
       evaluator,
-      orders,
+      actionExecutor,
     );
 
     const now = Math.floor(Date.now() / 60_000) * 60_000;

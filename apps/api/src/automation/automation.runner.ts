@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type {
   AutomationAction,
@@ -6,14 +6,9 @@ import type {
   ConditionNode,
   EvalContext,
   NormalizedSignal,
-  PlaceOrderInput,
 } from '@workspace/shared';
-import { TradeSide } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  ORDER_EXECUTION,
-  type OrderExecution,
-} from '../order-execution/order-execution.types.js';
+import { ActionExecutor } from './action-executor.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
@@ -42,8 +37,7 @@ export class AutomationRunner {
     private readonly prisma: PrismaService,
     private readonly providers: ProviderRegistry,
     private readonly conditionEvaluator: ConditionEvaluator,
-    @Inject(ORDER_EXECUTION)
-    private readonly orderExecution: OrderExecution,
+    private readonly actionExecutor: ActionExecutor,
   ) {}
 
   /**
@@ -114,37 +108,17 @@ export class AutomationRunner {
     );
     if (!holds) return 'skipped';
     const action = row.action as AutomationAction;
-    const placeInput = this.toPlaceOrderInput(action, row.accountId, row.id);
-    if (placeInput === null) {
+    const result = await this.actionExecutor.execute(action, {
+      accountId: row.accountId,
+      automationItemId: row.id,
+    });
+    if (result.kind === 'no-order') {
       this.logger.warn(
-        `Item ${row.id} action is not an order placement; skipping`,
+        `Item ${row.id} action is not an order placement; ${result.reason}; skipping`,
       );
       return 'skipped';
     }
-    await this.orderExecution.placeOrder(placeInput);
     return 'fired';
-  }
-
-  /**
-   * Map AutomationAction → OrderExecution.placeOrder input. `buy` and
-   * `sell` actions translate to a single order; `notify`/`none` don't
-   * produce an order (not handled by NCN-13).
-   *
-   * `automationItemId` is threaded through to the resulting Order so
-   * TradeHistoryService can attribute the fill in the Trade ledger.
-   */
-  private toPlaceOrderInput(
-    action: AutomationAction,
-    accountId: string,
-    automationItemId: string,
-  ): PlaceOrderInput | null {
-    if (action.kind === 'buy') {
-      return { accountId, symbol: action.symbol, side: TradeSide.BUY, qty: action.qty, automationItemId };
-    }
-    if (action.kind === 'sell') {
-      return { accountId, symbol: action.symbol, side: TradeSide.SELL, qty: action.qty, automationItemId };
-    }
-    return null;
   }
 }
 
