@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MarketDataModule } from '../market-data/market-data.module.js';
 import { OrderExecutionModule } from '../order-execution/order-execution.module.js';
+import { ActionExecutor } from './action-executor.js';
 import { AutomationController } from './automation.controller.js';
 import { AutomationRunner } from './automation.runner.js';
 import { AutomationService } from './automation.service.js';
@@ -22,12 +23,14 @@ import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
     WaveProvider,
     ConditionEvaluator,
     AutomationService,
+    ActionExecutor,
     AutomationRunner,
   ],
   exports: [
     ProviderRegistry,
     ConditionEvaluator,
     AutomationService,
+    ActionExecutor,
     AutomationRunner,
   ],
 })
