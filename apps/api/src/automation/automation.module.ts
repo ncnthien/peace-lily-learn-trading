@@ -7,6 +7,7 @@ import { AutomationService } from './automation.service.js';
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { SRProvider } from './providers/sr.provider.js';
 import { TimeProvider } from './providers/time.provider.js';
+import { WaveProvider } from './providers/wave.provider.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
 @Module({
@@ -18,6 +19,7 @@ import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
     ProviderRegistry,
     TimeProvider,
     SRProvider,
+    WaveProvider,
     ConditionEvaluator,
     AutomationService,
     AutomationRunner,

@@ -1,6 +1,7 @@
 import { ProviderRegistry } from './providers/provider.registry.js';
 import { TimeProvider } from './providers/time.provider.js';
 import { SRProvider } from './providers/sr.provider.js';
+import { WaveProvider } from './providers/wave.provider.js';
 import { AutomationRunner } from './automation.runner.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 import { MockOrderExecution } from '../order-execution/mock-order-execution.js';
@@ -294,6 +295,87 @@ describe('AutomationRunner', () => {
     prisma = makePrismaMock([
       makeRow({
         input: { kind: 'supportResistance', symbol: 'BTCUSDT', interval: '1h', minTouches: 1 },
+        condition: { type: 'legacy_pass' },
+      }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      orders,
+    );
+
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.skipped).toBe(1);
+    expect(summary.fired).toBe(0);
+  });
+
+  it('fired when an rsiEmaWave provider returns wave signals (NCN-15)', async () => {
+    // Wave-like candle series with a clear up-then-down oscillation so
+    // the detector returns at least one segment.
+    const series: number[] = [];
+    for (let i = 0; i < 30; i++) series.push(100 + i); // steady up
+    for (let i = 0; i < 20; i++) series.push(100 - i); // pullback
+    for (let i = 0; i < 30; i++) series.push(80 + i);  // recovery
+    const candles: Candle[] = series.map((p, i) => ({
+      openTime: i * 60_000,
+      open: p,
+      high: p + 0.5,
+      low: p - 0.5,
+      close: p,
+      volume: 1,
+      closeTime: i * 60_000 + 59_999,
+    }));
+    const marketData: MarketDataSource = {
+      getCandles: vi.fn(async () => candles),
+      subscribe: vi.fn(() => () => {}),
+      getLatestPrice: vi.fn(async () => 100),
+      shutdown: vi.fn(),
+    };
+    new WaveProvider(registry, marketData);
+
+    prisma = makePrismaMock([
+      makeRow({
+        input: { kind: 'rsiEmaWave', symbol: 'BTCUSDT', interval: '1h' },
+        condition: { type: 'legacy_pass' },
+      }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      orders,
+    );
+
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.fired).toBe(1);
+    expect(summary.errors).toBe(0);
+  });
+
+  it('skips an rsiEmaWave-driven item when no waves are detected (NCN-15)', async () => {
+    // Monotonic uptrend → no crossovers → detector returns null → runner skips.
+    const candles: Candle[] = Array.from({ length: 60 }, (_, i) => ({
+      openTime: i * 60_000,
+      open: 100 + i,
+      high: 100 + i + 0.5,
+      low: 100 + i - 0.5,
+      close: 100 + i,
+      volume: 1,
+      closeTime: i * 60_000 + 59_999,
+    }));
+    const marketData: MarketDataSource = {
+      getCandles: vi.fn(async () => candles),
+      subscribe: vi.fn(() => () => {}),
+      getLatestPrice: vi.fn(async () => 159),
+      shutdown: vi.fn(),
+    };
+    new WaveProvider(registry, marketData);
+
+    prisma = makePrismaMock([
+      makeRow({
+        input: { kind: 'rsiEmaWave', symbol: 'BTCUSDT', interval: '1h' },
         condition: { type: 'legacy_pass' },
       }),
     ]);

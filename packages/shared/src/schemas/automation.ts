@@ -31,6 +31,14 @@ export const AutomationInputSchema = z.discriminatedUnion('kind', [
       kind: z.literal('rsiEmaWave'),
       symbol: z.string().min(1),
       interval: TimeframeSchema,
+      /**
+       * Minimum RSI delta (in RSI points) a wave segment must span from
+       * start crossover to end crossover to survive noise filtering.
+       * Defaults to 5 — the wave's "magnitude" must exceed this.
+       */
+      noiseThreshold: z.number().finite().nonnegative().optional(),
+      /** Max candles to pull from MarketData. Defaults to 200. */
+      candleLimit: z.number().int().positive().optional(),
     })
     .strict(),
   z
