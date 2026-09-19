@@ -4,10 +4,14 @@ import type {
   Candle,
   EmaCrossoverResult,
   RsiResult,
-  SupportResistanceLevel,
   SupportResistanceResult,
   WmaResult,
 } from '@workspace/shared';
+import {
+  SR_DEFAULTS,
+  detectSRZones,
+  type SRDetectorOptions,
+} from './sr-detector.js';
 
 export const RSI_PERIOD = 14;
 export const EMA_FAST_PERIOD = 9;
@@ -15,10 +19,10 @@ export const EMA_SLOW_PERIOD = 21;
 export const WMA_PERIOD = 45;
 export const RSI_EMA_PERIOD = 9;
 export const RSI_WMA_PERIOD = 45;
-export const SR_PIVOT_LEFT_BARS = 10;
-export const SR_PIVOT_RIGHT_BARS = 10;
-export const SR_CLUSTER_THRESHOLD_PCT = 0.5;
-export const SR_MAX_LEVELS = 6;
+export const SR_PIVOT_LEFT_BARS = SR_DEFAULTS.leftBars;
+export const SR_PIVOT_RIGHT_BARS = SR_DEFAULTS.rightBars;
+export const SR_CLUSTER_THRESHOLD_PCT = SR_DEFAULTS.thresholdPct;
+export const SR_MAX_LEVELS = SR_DEFAULTS.maxLevels;
 
 type MovingAverageConstructor = new (
   period: number,
@@ -88,71 +92,13 @@ export class IndicatorsService {
    * Auto-detected support/resistance: pivot highs/lows (a bar whose high/low is
    * the extreme within left+right bars) clustered into levels within
    * thresholdPct of each other. Strength = number of touches.
+   *
+   * Thin delegate to {@link detectSRZones} so the same algorithm is reused
+   * by the Automation `supportResistance` input provider (NCN-14). The
+   * HTTP endpoint exposes the same shape and behavior as before.
    */
-  supportResistance(
-    candles: Candle[],
-    {
-      leftBars = SR_PIVOT_LEFT_BARS,
-      rightBars = SR_PIVOT_RIGHT_BARS,
-      thresholdPct = SR_CLUSTER_THRESHOLD_PCT,
-      maxLevels = SR_MAX_LEVELS,
-    }: {
-      leftBars?: number;
-      rightBars?: number;
-      thresholdPct?: number;
-      maxLevels?: number;
-    } = {},
-  ): SupportResistanceResult {
-    if (candles.length < leftBars + rightBars + 1) {
-      return { levels: [] };
-    }
-
-    const pivots: { price: number; time: number }[] = [];
-    for (let i = leftBars; i < candles.length - rightBars; i++) {
-      const c = candles[i];
-      let isHigh = true;
-      let isLow = true;
-      for (let j = i - leftBars; j <= i + rightBars; j++) {
-        if (j === i) continue;
-        if (candles[j].high > c.high) isHigh = false;
-        if (candles[j].low < c.low) isLow = false;
-        if (!isHigh && !isLow) break;
-      }
-      if (isHigh) pivots.push({ price: c.high, time: c.openTime });
-      if (isLow) pivots.push({ price: c.low, time: c.openTime });
-    }
-
-    const lastClose = candles.at(-1)?.close ?? 0;
-    const threshold = (lastClose * thresholdPct) / 100 || 1;
-    const clusters: { prices: number[]; lastTouchTime: number }[] = [];
-    for (const pivot of pivots) {
-      const existing = clusters.find(
-        (cluster) =>
-          Math.abs(
-            cluster.prices.reduce((sum, p) => sum + p, 0) / cluster.prices.length -
-              pivot.price,
-          ) <= threshold,
-      );
-      if (existing !== undefined) {
-        existing.prices.push(pivot.price);
-        existing.lastTouchTime = Math.max(existing.lastTouchTime, pivot.time);
-      } else {
-        clusters.push({ prices: [pivot.price], lastTouchTime: pivot.time });
-      }
-    }
-
-    const levels: SupportResistanceLevel[] = clusters.map((cluster) => {
-      const price = cluster.prices.reduce((sum, p) => sum + p, 0) / cluster.prices.length;
-      return {
-        price,
-        touches: cluster.prices.length,
-        kind: price <= lastClose ? ('support' as const) : ('resistance' as const),
-        lastTouchTime: cluster.lastTouchTime,
-      };
-    });
-
-    levels.sort((a, b) => b.touches - a.touches || b.lastTouchTime - a.lastTouchTime);
-    return { levels: levels.slice(0, maxLevels) };
+  supportResistance(candles: Candle[], options: SRDetectorOptions = {}): SupportResistanceResult {
+    return detectSRZones(candles, options);
   }
 
   emaCrossover(closes: number[], fastPeriod = EMA_FAST_PERIOD, slowPeriod = EMA_SLOW_PERIOD): EmaCrossoverResult {
