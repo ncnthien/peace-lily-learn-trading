@@ -220,12 +220,17 @@ export default function AutomationPage() {
               href="/"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              ← Back to dashboard
+              ← Back to signals
             </Link>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight">Automation</h1>
             <p className="text-sm text-muted-foreground">
               Rules that trigger buy/sell actions when their input signal fires.
             </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/dashboard">
+              <Button variant="outline" size="sm">Dashboard</Button>
+            </Link>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <AccountSelector />

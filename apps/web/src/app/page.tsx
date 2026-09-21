@@ -69,6 +69,9 @@ export default function DashboardPage() {
               <Link href="/accounts">
                 <Button variant="outline" size="sm">Accounts</Button>
               </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" size="sm">Dashboard</Button>
+              </Link>
               <Link href="/automation">
                 <Button variant="outline" size="sm">Automation</Button>
               </Link>

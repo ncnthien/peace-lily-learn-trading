@@ -104,3 +104,64 @@ export const UnrealizedPnlSummarySchema = z
 
 export type UnrealizedPosition = z.infer<typeof UnrealizedPositionSchema>;
 export type UnrealizedPnlSummary = z.infer<typeof UnrealizedPnlSummarySchema>;
+
+// ============================================================
+// Account dashboard (NCN-22)
+// ============================================================
+// A single payload the home dashboard reads on mount. Composed
+// from existing pieces (Account + realized summary + unrealized
+// summary) plus a bucketed PnL time series so the client doesn't
+// have to round-trip three or four endpoints to render one view.
+// =========================================================================
+
+/**
+ * How the realized-PnL time series is bucketed.
+ * - `day`:   each entry sums one UTC calendar day's realized matches,
+ *            `bucketStart` is the day's YYYY-MM-DD.
+ * - `week`:  each entry sums one ISO week (Monday-anchored); `bucketStart`
+ *            is the Monday's YYYY-MM-DD.
+ * - `month`: each entry sums one calendar month; `bucketStart` is the
+ *            month's first day as YYYY-MM-DD.
+ *
+ * Bucketing is computed server-side from `RealizedPnlMatch.sellTimestamp`
+ * (ISO 8601 UTC strings); the UI distinguishes the three by formatting
+ * the `bucketStart` accordingly.
+ */
+export const PnlBucketSchema = z.enum(['day', 'week', 'month']);
+export type PnlBucket = z.infer<typeof PnlBucketSchema>;
+
+export const PnlBucketPointSchema = z
+  .object({
+    /** Inclusive bucket start (UTC). For week buckets this is the Monday. */
+    bucketStart: z.string(),
+    /** Sum of realized PnL across all closed sells inside this bucket. */
+    pnl: z.number(),
+  })
+  .strict();
+
+export const AccountDashboardSchema = z
+  .object({
+    account: z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      type: z.enum(['real', 'demo']),
+      balance: z.number().finite(),
+      status: z.string(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+    /** `balance + totalUnrealizedPnl`. Standard trading-account equity. */
+    equity: z.number(),
+    totals: z.object({
+      realized: z.number(),
+      unrealized: z.number(),
+    }),
+    /** Selected bucket. Echoed back so the client doesn't have to track it. */
+    bucket: PnlBucketSchema,
+    /** Time series, sorted ascending by `bucketStart`. Empty array when no closed sells. */
+    pnlSeries: z.array(PnlBucketPointSchema),
+  })
+  .strict();
+
+export type PnlBucketPoint = z.infer<typeof PnlBucketPointSchema>;
+export type AccountDashboard = z.infer<typeof AccountDashboardSchema>;

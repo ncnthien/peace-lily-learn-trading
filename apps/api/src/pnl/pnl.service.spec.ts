@@ -268,3 +268,71 @@ describe('PnlService (NCN-21: unrealized)', () => {
     expect(summary.positions).toHaveLength(2);
   });
 });
+
+describe('PnlService.getPnlSeries (NCN-22)', () => {
+  it('returns an empty series when the account has no trades', async () => {
+    const prisma = makePrismaMock([]);
+    const marketData = makeMarketDataMock({});
+    const service = new PnlService(
+      prisma as unknown as ConstructorParameters<typeof PnlService>[0],
+      marketData as unknown as ConstructorParameters<typeof PnlService>[1],
+    );
+    const series = await service.getPnlSeries('acc-1', 'day');
+    expect(series).toEqual([]);
+  });
+
+  it('returns an empty series when there are buys but no sells', async () => {
+    const base = Date.now();
+    const prisma = makePrismaMock([
+      { id: 'b1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 100, qty: 1, fee: null, timestamp: new Date(base) },
+    ]);
+    const marketData = makeMarketDataMock({});
+    const service = new PnlService(
+      prisma as unknown as ConstructorParameters<typeof PnlService>[0],
+      marketData as unknown as ConstructorParameters<typeof PnlService>[1],
+    );
+    const series = await service.getPnlSeries('acc-1', 'day');
+    expect(series).toEqual([]);
+  });
+
+  it('buckets closed-sell PnL by day across multiple sells', async () => {
+    // Two buy lots, two sells the same UTC day:
+    //   s1 @ 120 × 1 → matches b1 (cost 100)        =  20 realized
+    //   s2 @ 150 × 2 → matches b1 rem (1@100) +
+    //                              b2 (1@120)        =  50 + 30 = 80 realized
+    //   total = 100
+    const base = Date.UTC(2026, 0, 15, 12, 0, 0);
+    const prisma = makePrismaMock([
+      { id: 'b1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 100, qty: 2, fee: null, timestamp: new Date(base - 60_000) },
+      { id: 'b2', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 120, qty: 2, fee: null, timestamp: new Date(base - 30_000) },
+      { id: 's1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'sell', price: 120, qty: 1, fee: null, timestamp: new Date(base) },
+      { id: 's2', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'sell', price: 150, qty: 2, fee: null, timestamp: new Date(base + 60_000) },
+    ]);
+    const marketData = makeMarketDataMock({});
+    const service = new PnlService(
+      prisma as unknown as ConstructorParameters<typeof PnlService>[0],
+      marketData as unknown as ConstructorParameters<typeof PnlService>[1],
+    );
+    const series = await service.getPnlSeries('acc-1', 'day');
+    expect(series).toEqual([{ bucketStart: '2026-01-15', pnl: 100 }]);
+  });
+
+  it('honors the bucket choice: same data yields different keys for week vs day', async () => {
+    const base = Date.UTC(2026, 0, 15, 12, 0, 0); // Thursday
+    const prisma = makePrismaMock([
+      { id: 'b1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'buy', price: 100, qty: 2, fee: null, timestamp: new Date(base - 60_000) },
+      { id: 's1', accountId: 'acc-1', symbol: 'BTCUSDT', side: 'sell', price: 120, qty: 1, fee: null, timestamp: new Date(base) },
+    ]);
+    const marketData = makeMarketDataMock({});
+    const service = new PnlService(
+      prisma as unknown as ConstructorParameters<typeof PnlService>[0],
+      marketData as unknown as ConstructorParameters<typeof PnlService>[1],
+    );
+    const daySeries = await service.getPnlSeries('acc-1', 'day');
+    const weekSeries = await service.getPnlSeries('acc-1', 'week');
+    const monthSeries = await service.getPnlSeries('acc-1', 'month');
+    expect(daySeries[0]!.bucketStart).toBe('2026-01-15');
+    expect(weekSeries[0]!.bucketStart).toBe('2026-01-12');
+    expect(monthSeries[0]!.bucketStart).toBe('2026-01-01');
+  });
+});
