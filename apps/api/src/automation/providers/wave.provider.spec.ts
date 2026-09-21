@@ -90,7 +90,11 @@ describe('WaveProvider (NCN-15)', () => {
       const { provider } = buildProvider(
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
-      const cfg = provider.validateConfig({ symbol: 'btcusdt', interval: '1h' });
+      const cfg = provider.validateConfig({
+        kind: 'rsiEmaWave',
+        symbol: 'btcusdt',
+        interval: '1h',
+      });
       expect(cfg).toEqual({ symbol: 'BTCUSDT', interval: '1h' });
     });
 
@@ -99,6 +103,7 @@ describe('WaveProvider (NCN-15)', () => {
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
       const cfg = provider.validateConfig({
+        kind: 'rsiEmaWave',
         symbol: 'BTCUSDT',
         interval: '1h',
         noiseThreshold: 7.5,
@@ -119,14 +124,18 @@ describe('WaveProvider (NCN-15)', () => {
       const { provider } = buildProvider(
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
-      expect(() => provider.validateConfig({ interval: '1h' })).toThrow(/symbol/);
+      expect(() =>
+        provider.validateConfig({ kind: 'rsiEmaWave', interval: '1h' }),
+      ).toThrow(/symbol/);
     });
 
     it('rejects missing interval', () => {
       const { provider } = buildProvider(
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
-      expect(() => provider.validateConfig({ symbol: 'BTCUSDT' })).toThrow(/interval/);
+      expect(() =>
+        provider.validateConfig({ kind: 'rsiEmaWave', symbol: 'BTCUSDT' }),
+      ).toThrow(/interval/);
     });
 
     it('rejects negative noiseThreshold', () => {
@@ -135,6 +144,7 @@ describe('WaveProvider (NCN-15)', () => {
       );
       expect(() =>
         provider.validateConfig({
+          kind: 'rsiEmaWave',
           symbol: 'BTCUSDT',
           interval: '1h',
           noiseThreshold: -1,
@@ -148,6 +158,7 @@ describe('WaveProvider (NCN-15)', () => {
       );
       expect(() =>
         provider.validateConfig({
+          kind: 'rsiEmaWave',
           symbol: 'BTCUSDT',
           interval: '1h',
           candleLimit: 1.5,

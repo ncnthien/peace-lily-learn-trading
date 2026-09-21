@@ -52,9 +52,16 @@ export abstract class Provider<TConfig, TRawSignal> {
    * multiple distinct events — currently SRProvider, which detects
    * N zones — return an array; the runner flattens both shapes into
    * EvalContext.signals.
+   *
+   * The `ctx` parameter is optional: providers that need no per-tick
+   * context (e.g. TimeProvider, which has all info on the raw signal)
+   * may omit it; providers that consume `ctx.symbol` or `ctx.now` for
+   * normalization (e.g. to stamp timestamps / source) pass it through.
+   * Declaring it optional keeps the base signature permissive while
+   * letting runners always pass `ctx` for free.
    */
   abstract normalize(
     raw: TRawSignal,
-    ctx: ProviderContext,
+    ctx?: ProviderContext,
   ): NormalizedSignal | NormalizedSignal[];
 }
