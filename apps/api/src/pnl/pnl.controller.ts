@@ -2,6 +2,8 @@ import { Controller, Get, Query } from '@nestjs/common';
 import type {
   RealizedPnlMatch,
   RealizedPnlSummary,
+  UnrealizedPnlSummary,
+  UnrealizedPosition,
 } from '@workspace/shared';
 import { PnlService } from './pnl.service.js';
 
@@ -40,5 +42,41 @@ export class PnlController {
       return [];
     }
     return this.pnl.listMatches(accountId);
+  }
+
+  /**
+   * GET /pnl/unrealized?accountId=<id> (NCN-21)
+   *
+   * Aggregated unrealized PnL across all open positions for the account.
+   * Mark-to-market against the latest price observed by MarketDataSource.
+   * Empty result (zero total, empty positions, empty perSymbol) when
+   * accountId is absent — mirrors the loose query convention.
+   */
+  @Get('unrealized')
+  async getUnrealized(
+    @Query('accountId') accountId?: string,
+  ): Promise<UnrealizedPnlSummary | { accountId: ''; totalUnrealizedPnl: 0; perSymbol: {}; positions: [] }> {
+    if (accountId === undefined || accountId.length === 0) {
+      return { accountId: '', totalUnrealizedPnl: 0, perSymbol: {}, positions: [] };
+    }
+    return this.pnl.getUnrealizedSummary(accountId);
+  }
+
+  /**
+   * GET /pnl/unrealized/positions?accountId=<id> (NCN-21)
+   *
+   * Per-position snapshot — one entry per held symbol with its mark,
+   * avg cost, and unrealized PnL. Useful for the table view; the summary
+   * endpoint already embeds this list so a second round-trip is only
+   * worthwhile for clients that want *just* the rows.
+   */
+  @Get('unrealized/positions')
+  async getUnrealizedPositions(
+    @Query('accountId') accountId?: string,
+  ): Promise<UnrealizedPosition[]> {
+    if (accountId === undefined || accountId.length === 0) {
+      return [];
+    }
+    return this.pnl.getUnrealizedPositions(accountId);
   }
 }
