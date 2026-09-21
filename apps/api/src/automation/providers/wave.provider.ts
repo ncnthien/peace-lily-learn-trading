@@ -1,5 +1,11 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type { Candle, NormalizedSignal, Timeframe } from '@workspace/shared';
+import { Inject, Injectable } from '@nestjs/common';
+import type {
+  Candle,
+  NormalizedSignal,
+  Timeframe,
+  WaveConfig,
+} from '@workspace/shared';
+import { RsiEmaWaveInputSchema } from '@workspace/shared';
 import {
   detectWavesFromCandles,
   WAVE_DEFAULTS,
@@ -11,6 +17,7 @@ import {
 } from '../../market-data/market-data.types.js';
 import { Provider, type ProviderContext } from './provider.abstract.js';
 import { ProviderRegistry } from './provider.registry.js';
+import { badRequestFromZod } from './zod-bad-request.js';
 
 /**
  * Default candle window for wave detection. Matches NCN-14's
@@ -19,16 +26,11 @@ import { ProviderRegistry } from './provider.registry.js';
 const WAVE_DEFAULT_CANDLE_LIMIT = 200;
 
 /**
- * WaveConfig — the typed config a `rsiEmaWave` AutomationItem carries.
- * Mirrors the discriminated union variant in {@link AutomationInputSchema}.
+ * WaveConfig — typed alias for the `rsiEmaWave` config shape, imported
+ * from `@workspace/shared` so every provider agrees on the field set.
  * Optional fields default to {@link WAVE_DEFAULTS} at evaluate() time.
  */
-export interface WaveConfig {
-  symbol: string;
-  interval: Timeframe;
-  noiseThreshold?: number;
-  candleLimit?: number;
-}
+export type { WaveConfig };
 
 export interface WaveSignal {
   segments: WaveSegment[];
@@ -69,49 +71,32 @@ export class WaveProvider extends Provider<WaveConfig, WaveSignal> {
   }
 
   validateConfig(raw: unknown): WaveConfig {
-    if (typeof raw !== 'object' || raw === null) {
-      throw new BadRequestException('rsiEmaWave config must be an object');
-    }
-    const r = raw as {
-      symbol?: unknown;
-      interval?: unknown;
-      noiseThreshold?: unknown;
-      candleLimit?: unknown;
+    // Validation is Zod-driven via the shared RsiEmaWaveInputSchema
+    // (the project convention). The schema applies trim/uppercase
+    // normalization on `symbol`, validates `noiseThreshold` /
+    // `candleLimit`, and surfaces a typed config; we wrap ZodError →
+    // BadRequestException at this boundary so the runner + tests
+    // still see the legacy error type.
+    let input: {
+      kind: 'rsiEmaWave';
+      symbol: string;
+      interval: Timeframe;
+      noiseThreshold?: number;
+      candleLimit?: number;
     };
-    if (typeof r.symbol !== 'string' || r.symbol.trim().length === 0) {
-      throw new BadRequestException('rsiEmaWave config: symbol is required');
+    try {
+      input = RsiEmaWaveInputSchema.parse(raw);
+    } catch (err) {
+      badRequestFromZod(err, 'rsiEmaWave config is invalid');
     }
-    if (typeof r.interval !== 'string' || r.interval.trim().length === 0) {
-      throw new BadRequestException('rsiEmaWave config: interval is required');
-    }
+    // Drop the `kind` discriminator — runners hand providers an inner
+    // typed config, not the full discriminated input.
     const cfg: WaveConfig = {
-      symbol: r.symbol.trim().toUpperCase(),
-      interval: r.interval as Timeframe,
+      symbol: input.symbol.toUpperCase(),
+      interval: input.interval,
     };
-    if (r.noiseThreshold !== undefined) {
-      if (
-        typeof r.noiseThreshold !== 'number' ||
-        !Number.isFinite(r.noiseThreshold) ||
-        r.noiseThreshold < 0
-      ) {
-        throw new BadRequestException(
-          'rsiEmaWave config: noiseThreshold must be a non-negative finite number',
-        );
-      }
-      cfg.noiseThreshold = r.noiseThreshold;
-    }
-    if (r.candleLimit !== undefined) {
-      if (
-        typeof r.candleLimit !== 'number' ||
-        !Number.isInteger(r.candleLimit) ||
-        r.candleLimit <= 0
-      ) {
-        throw new BadRequestException(
-          'rsiEmaWave config: candleLimit must be a positive integer',
-        );
-      }
-      cfg.candleLimit = r.candleLimit;
-    }
+    if (input.noiseThreshold !== undefined) cfg.noiseThreshold = input.noiseThreshold;
+    if (input.candleLimit !== undefined) cfg.candleLimit = input.candleLimit;
     return cfg;
   }
 

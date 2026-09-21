@@ -1,5 +1,11 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type { Candle, NormalizedSignal, Timeframe } from '@workspace/shared';
+import { Inject, Injectable } from '@nestjs/common';
+import type {
+  Candle,
+  NormalizedSignal,
+  SRConfig,
+  Timeframe,
+} from '@workspace/shared';
+import { SupportResistanceInputSchema } from '@workspace/shared';
 import { detectSRZones } from '../../indicators/sr-detector.js';
 import {
   MARKET_DATA_SOURCE,
@@ -7,6 +13,7 @@ import {
 } from '../../market-data/market-data.types.js';
 import { Provider, type ProviderContext } from './provider.abstract.js';
 import { ProviderRegistry } from './provider.registry.js';
+import { badRequestFromZod } from './zod-bad-request.js';
 
 /**
  * Number of candles to pull for S/R detection. 200 × 1h ≈ 8 days of
@@ -17,16 +24,11 @@ import { ProviderRegistry } from './provider.registry.js';
 const SR_DEFAULT_CANDLE_LIMIT = 200;
 
 /**
- * SRConfig — the typed config a `supportResistance` AutomationItem
- * carries. Mirrors the discriminated union variant in
- * {@link AutomationInputSchema}. Provider-internal defaults are picked
- * up at evaluate() time so the persisted config stays minimal.
+ * SRConfig — typed alias for the `supportResistance` config shape,
+ * imported from `@workspace/shared` so every provider agrees on the
+ * field set. See {@link SupportResistanceConfigSchema}.
  */
-export interface SRConfig {
-  symbol: string;
-  interval: Timeframe;
-  minTouches: number;
-}
+export type { SRConfig };
 
 export interface SRSignal {
   levels: ReturnType<typeof detectSRZones>['levels'];
@@ -68,30 +70,23 @@ export class SRProvider extends Provider<SRConfig, SRSignal> {
   }
 
   validateConfig(raw: unknown): SRConfig {
-    if (typeof raw !== 'object' || raw === null) {
-      throw new BadRequestException('supportResistance config must be an object');
+    // Validation is Zod-driven via the shared SupportResistanceInputSchema
+    // (the project convention). The schema applies trim/uppercase
+    // normalization on `symbol` and validates `minTouches` is a positive
+    // integer; we surface the failure as BadRequestException at this
+    // boundary so the runner + tests still see the legacy error type.
+    let input: { kind: 'supportResistance'; symbol: string; interval: Timeframe; minTouches: number };
+    try {
+      input = SupportResistanceInputSchema.parse(raw);
+    } catch (err) {
+      badRequestFromZod(err, 'supportResistance config is invalid');
     }
-    const r = raw as { symbol?: unknown; interval?: unknown; minTouches?: unknown };
-    if (typeof r.symbol !== 'string' || r.symbol.trim().length === 0) {
-      throw new BadRequestException('supportResistance config: symbol is required');
-    }
-    if (typeof r.interval !== 'string' || r.interval.trim().length === 0) {
-      throw new BadRequestException('supportResistance config: interval is required');
-    }
-    if (
-      typeof r.minTouches !== 'number' ||
-      !Number.isFinite(r.minTouches) ||
-      !Number.isInteger(r.minTouches) ||
-      r.minTouches <= 0
-    ) {
-      throw new BadRequestException(
-        'supportResistance config: minTouches must be a positive integer',
-      );
-    }
+    // Drop the `kind` discriminator — runners hand providers an inner
+    // typed config, not the full discriminated input.
     return {
-      symbol: r.symbol.trim().toUpperCase(),
-      interval: r.interval as Timeframe,
-      minTouches: r.minTouches,
+      symbol: input.symbol.toUpperCase(),
+      interval: input.interval,
+      minTouches: input.minTouches,
     };
   }
 

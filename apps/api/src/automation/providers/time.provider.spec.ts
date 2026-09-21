@@ -14,13 +14,13 @@ describe('TimeProvider', () => {
     const provider = new TimeProvider(reg);
 
     it('accepts a valid 5-field cron expression', () => {
-      expect(provider.validateConfig({ cron: '*/5 * * * *' })).toEqual({
+      expect(provider.validateConfig({ kind: 'time', cron: '*/5 * * * *' })).toEqual({
         cron: '*/5 * * * *',
       });
     });
 
     it('trims whitespace from the cron string', () => {
-      expect(provider.validateConfig({ cron: '  0 0 * * *  ' })).toEqual({
+      expect(provider.validateConfig({ kind: 'time', cron: '  0 0 * * *  ' })).toEqual({
         cron: '0 0 * * *',
       });
     });
@@ -30,17 +30,17 @@ describe('TimeProvider', () => {
     });
 
     it('rejects objects without a cron string', () => {
-      expect(() => provider.validateConfig({})).toThrow(BadRequestException);
+      expect(() => provider.validateConfig({ kind: 'time' })).toThrow(BadRequestException);
     });
 
     it('rejects malformed cron expressions', () => {
-      expect(() => provider.validateConfig({ cron: 'not-a-cron' })).toThrow(
+      expect(() => provider.validateConfig({ kind: 'time', cron: 'not-a-cron' })).toThrow(
         BadRequestException,
       );
     });
 
     it('rejects cron expressions with out-of-range fields (e.g. minute 60)', () => {
-      expect(() => provider.validateConfig({ cron: '60 * * * *' })).toThrow(
+      expect(() => provider.validateConfig({ kind: 'time', cron: '60 * * * *' })).toThrow(
         BadRequestException,
       );
     });

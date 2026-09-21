@@ -4,6 +4,7 @@ import {
   AutomationItemStatus,
 } from '../enums/automation.js';
 import { TimeframeSchema } from './domain.js';
+import type { Timeframe } from '../enums/timeframe.js';
 
 export const AutomationItemStatusSchema = z.enum(
   AUTOMATION_STATUSES as unknown as readonly [AutomationItemStatus, ...AutomationItemStatus[]],
@@ -12,50 +13,128 @@ export const AutomationItemStatusSchema = z.enum(
 // ============================================================
 // AutomationInput (NCN-12 + NCN-13)
 // Discriminated union over `kind`. Adding a new provider kind
-// means adding a new variant here; TypeScript and runtime both
-// get the new shape automatically.
+// means adding a new sub-schema here; the union picks it up
+// automatically. There are TWO per-kind schemas for symmetry
+// between wire shape (input) and validated inner shape (config):
+//
+//   - Per-kind *config* schema: validates the inner fields, applies
+//     normalization transforms (trim / uppercase), and exports
+//     the typed config shape. Providers call `.parse(raw)` on this
+//     to do their runtime check via Zod — that's the project-wide
+//     convention.
+//   - Per-kind *input* schema: same field set with a literal `kind`
+//     discriminator. Feeds the AutomationInputSchema discriminated
+//     union used by the API edge / UI form.
+//
+// `transform()` lives only on the config schema — discriminated
+// unions can't take ZodEffects as members.
 // ============================================================
 
-export const TimeConfigSchema = z
+/**
+ * Per-kind CONFIG schemas. These are what providers call inside
+ * `validateConfig()`. The `.transform()` step canonicalizes the shape
+ * so the rest of the pipeline can rely on trimmed whitespace and
+ * upper-cased symbols without re-checking.
+ *
+ * Implementation note: each per-kind pair has a base `ZodObject`
+ * (the structural validation rules) plus a thin `.transform()`
+ * wrapper that returns the typed config. The base is reused so
+ * the per-kind *input* schema (the discriminated-union variant) can
+ * extend it — you can't reach `.shape` through a ZodPipe, so the
+ * base is the shared source of truth.
+ */
+
+const TimeConfigBase = z
   .object({
     cron: z
       .string()
       .trim()
-      .regex(/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/, 'cron must be a 5-field cron expression'),
+      .regex(
+        /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/,
+        'cron must be a 5-field cron expression',
+      ),
   })
   .strict();
 
+export const TimeConfigSchema = TimeConfigBase.transform((v) => ({
+  cron: v.cron.trim(),
+}));
+export type TimeConfig = z.infer<typeof TimeConfigSchema>;
+
+const RsiEmaWaveConfigBase = z
+  .object({
+    symbol: z.string().trim().toUpperCase().min(1),
+    interval: TimeframeSchema,
+    /**
+     * Minimum RSI delta (in RSI points) a wave segment must span from
+     * start crossover to end crossover to survive noise filtering.
+     * Defaults to 5 — the wave's "magnitude" must exceed this.
+     */
+    noiseThreshold: z.number().finite().nonnegative().optional(),
+    /** Max candles to pull from MarketData. Defaults to 200. */
+    candleLimit: z.number().int().positive().optional(),
+  })
+  .strict();
+
+export const RsiEmaWaveConfigSchema = RsiEmaWaveConfigBase.transform((v) => {
+  const out: {
+    symbol: string;
+    interval: Timeframe;
+    noiseThreshold?: number;
+    candleLimit?: number;
+  } = { symbol: v.symbol, interval: v.interval };
+  if (v.noiseThreshold !== undefined) out.noiseThreshold = v.noiseThreshold;
+  if (v.candleLimit !== undefined) out.candleLimit = v.candleLimit;
+  return out;
+});
+export type RsiEmaWaveConfig = z.infer<typeof RsiEmaWaveConfigSchema>;
+
+const SupportResistanceConfigBase = z
+  .object({
+    symbol: z.string().trim().toUpperCase().min(1),
+    interval: TimeframeSchema,
+    minTouches: z.number().int().positive(),
+  })
+  .strict();
+
+export const SupportResistanceConfigSchema = SupportResistanceConfigBase.transform(
+  (v) => ({
+    symbol: v.symbol.toUpperCase(),
+    interval: v.interval,
+    minTouches: v.minTouches,
+  }),
+);
+export type SupportResistanceConfig = z.infer<typeof SupportResistanceConfigSchema>;
+
+/**
+ * Per-kind INPUT schemas (with literal `kind` discriminator). Used
+ * inside the AutomationInputSchema discriminated union; the API edge
+ * validates via `nestjs-zod`'s ZodValidationPipe against the union.
+ *
+ * These share the base ZodObject's validation rules with the config
+ * schemas above so a single change to a field's constraint flows to
+ * both layers automatically.
+ */
+
+export const TimeInputSchema = TimeConfigBase.extend({
+  kind: z.literal('time'),
+}).strict();
+
+export const RsiEmaWaveInputSchema = RsiEmaWaveConfigBase.extend({
+  kind: z.literal('rsiEmaWave'),
+}).strict();
+
+export const SupportResistanceInputSchema = SupportResistanceConfigBase.extend({
+  kind: z.literal('supportResistance'),
+}).strict();
+
 export const AutomationInputSchema = z.discriminatedUnion('kind', [
-  z
-    .object({
-      kind: z.literal('rsiEmaWave'),
-      symbol: z.string().min(1),
-      interval: TimeframeSchema,
-      /**
-       * Minimum RSI delta (in RSI points) a wave segment must span from
-       * start crossover to end crossover to survive noise filtering.
-       * Defaults to 5 — the wave's "magnitude" must exceed this.
-       */
-      noiseThreshold: z.number().finite().nonnegative().optional(),
-      /** Max candles to pull from MarketData. Defaults to 200. */
-      candleLimit: z.number().int().positive().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('supportResistance'),
-      symbol: z.string().min(1),
-      interval: TimeframeSchema,
-      minTouches: z.number().int().positive(),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('time'),
-      cron: z.string().trim(),
-    })
-    .strict(),
+  RsiEmaWaveInputSchema,
+  SupportResistanceInputSchema,
+  TimeInputSchema,
 ]);
+// Order doesn't change runtime correctness (discriminator picks); the
+// listing above is just what `AutomationInput.kind` will look like.
 
 // ============================================================
 // ConditionNode tree (NCN-27)
@@ -243,7 +322,15 @@ export type ConditionSource = z.infer<typeof ConditionSourceSchema>;
 export type AutomationInput = z.infer<typeof AutomationInputSchema>;
 export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 export type AutomationOutput = z.infer<typeof AutomationOutputSchema>;
-export type TimeConfig = z.infer<typeof TimeConfigSchema>;
+// Per-kind typed configs (what the providers' `validateConfig`
+// returns). `TimeConfig` is declared above via z.infer;
+// `WaveConfig` / `SRConfig` here are convenience aliases for the
+// matching configs so callers don't have to repeat the union
+// member names.
+export type {
+  RsiEmaWaveConfig as WaveConfig,
+  SupportResistanceConfig as SRConfig,
+};
 
 // ============================================================
 // AutomationItem lifecycle (NCN-17)

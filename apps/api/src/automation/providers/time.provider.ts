@@ -1,20 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Cron } from 'croner';
-import type { NormalizedSignal } from '@workspace/shared';
+import type { NormalizedSignal, TimeConfig } from '@workspace/shared';
+import { TimeInputSchema } from '@workspace/shared';
 import { Provider, type ProviderContext } from './provider.abstract.js';
 import { ProviderRegistry } from './provider.registry.js';
-
-/**
- * 5-field cron syntax: minute hour day-of-month month day-of-week.
- * croner accepts the same surface we already validate against
- * (`* * * * *` style), so we keep the existing regex check at the API
- * boundary and only use croner for the actual matching here.
- */
-const CRON_FIELD_RE = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/;
-
-export interface TimeConfig {
-  cron: string;
-}
+import { badRequestFromZod } from './zod-bad-request.js';
 
 /**
  * Raw output of TimeProvider — a "fired" signal with the fire timestamp.
@@ -31,9 +21,16 @@ export interface TimeSignal {
  * the match — the @nestjs/schedule runner calls us every minute and we
  * return null (no fire) when the cron doesn't match the current minute.
  *
- * Other providers (RSI+EMA, ZigZag, S/R) follow the same shape:
+ * `validateConfig` is Zod-driven (project convention): structural shape
+ * + format (5-field cron regex) via the shared `TimeConfigSchema`. We
+ * add a tiny semantic check after the parse because croner is stricter
+ * than the field regex — `60 * * * *` passes the regex but fails croner.
+ *
+ * Other providers follow the same shape:
  *   - extend Provider<TConfig, TRawSignal>
- *   - implement validateConfig, evaluate, normalize
+ *   - validateConfig calls the matching shared XxxConfigSchema.parse()
+ *     and re-throws ZodError as BadRequestException at the boundary
+ *   - implement evaluate, normalize
  *   - register with ProviderRegistry in the constructor
  */
 @Injectable()
@@ -46,24 +43,26 @@ export class TimeProvider extends Provider<TimeConfig, TimeSignal> {
   }
 
   validateConfig(raw: unknown): TimeConfig {
-    if (typeof raw !== 'object' || raw === null) {
-      throw new BadRequestException('time config must be an object');
-    }
-    const cron = (raw as { cron?: unknown }).cron;
-    if (typeof cron !== 'string' || !CRON_FIELD_RE.test(cron.trim())) {
-      throw new BadRequestException(
-        'time config: cron must be a 5-field cron expression',
-      );
-    }
-    // Verify the cron actually parses — croner throws on bad expressions
-    // that the field regex lets through (e.g. "60 * * * *").
+    // Validation is Zod-driven via the shared TimeInputSchema (the
+    // project convention). The schema inherits the structural rules
+    // from TimeConfigBase, so the 5-field cron regex + the strict
+    // shape are shared with the API edge.
+    let input: { kind: 'time'; cron: string };
     try {
-      new Cron(cron.trim());
+      input = TimeInputSchema.parse(raw);
+    } catch (err) {
+      badRequestFromZod(err, 'time config is invalid');
+    }
+    // croner rejects things the regex lets through (e.g. minute > 59).
+    try {
+      new Cron(input.cron);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'invalid cron';
-      throw new BadRequestException(`time config: ${message}`);
+      throw new BadRequestException(`time config cron: ${message}`);
     }
-    return { cron: cron.trim() };
+    // Strip the `kind` discriminator — runners hand providers an inner
+    // typed config, not the full discriminated input.
+    return { cron: input.cron };
   }
 
   /**

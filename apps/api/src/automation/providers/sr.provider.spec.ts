@@ -73,6 +73,7 @@ describe('SRProvider (NCN-14)', () => {
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
       const cfg = provider.validateConfig({
+        kind: 'supportResistance',
         symbol: 'btcusdt',
         interval: '1h',
         minTouches: 2,
@@ -92,7 +93,11 @@ describe('SRProvider (NCN-14)', () => {
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
       expect(() =>
-        provider.validateConfig({ interval: '1h', minTouches: 2 }),
+        provider.validateConfig({
+          kind: 'supportResistance',
+          interval: '1h',
+          minTouches: 2,
+        }),
       ).toThrow(/symbol/);
     });
 
@@ -101,7 +106,11 @@ describe('SRProvider (NCN-14)', () => {
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
       expect(() =>
-        provider.validateConfig({ symbol: 'BTCUSDT', minTouches: 2 }),
+        provider.validateConfig({
+          kind: 'supportResistance',
+          symbol: 'BTCUSDT',
+          minTouches: 2,
+        }),
       ).toThrow(/interval/);
     });
 
@@ -110,10 +119,16 @@ describe('SRProvider (NCN-14)', () => {
         makeCandles(Array.from({ length: 60 }, () => 100)),
       );
       expect(() =>
-        provider.validateConfig({ symbol: 'BTCUSDT', interval: '1h', minTouches: 0 }),
+        provider.validateConfig({
+          kind: 'supportResistance',
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          minTouches: 0,
+        }),
       ).toThrow(/minTouches/);
       expect(() =>
         provider.validateConfig({
+          kind: 'supportResistance',
           symbol: 'BTCUSDT',
           interval: '1h',
           minTouches: 1.5,
@@ -121,6 +136,7 @@ describe('SRProvider (NCN-14)', () => {
       ).toThrow(/minTouches/);
       expect(() =>
         provider.validateConfig({
+          kind: 'supportResistance',
           symbol: 'BTCUSDT',
           interval: '1h',
           minTouches: -1,

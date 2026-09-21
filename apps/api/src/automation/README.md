@@ -128,7 +128,20 @@ the service. You only need to:
      }
 
      validateConfig(raw: unknown): ZigZagConfig {
-       // throw BadRequestException on invalid; return typed config otherwise
+       // Validation is **Zod-driven** (project convention): call the
+       // shared `ZigZagInputSchema.parse(raw)` and wrap ZodError →
+       // BadRequestException via `badRequestFromZod`. The shared
+       // `ZigZagInputSchema` is defined in
+       // packages/shared/src/schemas/automation.ts alongside the rest
+       // of the discriminated-union input shapes — it carries the
+       // `kind` discriminator and the per-field rules; `ZigZagConfig`
+       // is the typed shape returned by `.parse()` (without `kind`).
+       // See `provider-time.validator()` in apps/api/src/automation/
+       // providers/zod-bad-request.ts for the boundary helper.
+       //
+       // Throw BadRequestException on invalid (e.g. for *semantic*
+       // checks like "is this a valid cron"); let Zod catch
+       // *structural* failures.
      }
 
      async evaluate(ctx): Promise<ZigZagSignal | null> {
@@ -157,13 +170,34 @@ the service. You only need to:
    ```
 
 3. **Add the kind to the `AutomationInput` discriminated union** in
-   `packages/shared/src/index.ts`:
+   `packages/shared/src/schemas/automation.ts`. Define a per-kind
+   input schema (`ZigZagInputSchema`) — providers consume it
+   directly inside their `validateConfig()` calls. The shared
+   `AutomationInputSchema` then adds the new variant:
 
    ```ts
-   export type AutomationInput =
-     | { kind: 'time'; cron: string }
-     | { kind: 'zigzag'; symbol: string; interval: Timeframe; threshold: number };
+   // schemas/automation.ts
+   const ZigZagConfigBase = z.object({
+     symbol: z.string().trim().toUpperCase().min(1),
+     interval: TimeframeSchema,
+     threshold: z.number().finite().positive(),
+   }).strict();
+
+   export const ZigZagInputSchema = ZigZagConfigBase.extend({
+     kind: z.literal('zigzag'),
+   });
+
+   export const AutomationInputSchema = z.discriminatedUnion('kind', [
+     /* …existing variants… */,
+     ZigZagInputSchema,
+   ]);
    ```
+
+   The provider's `validateConfig()` calls `ZigZagInputSchema.parse(raw)`
+   directly — no hand-rolled field checks. (See
+   apps/api/src/automation/providers/time.provider.ts for the
+   current convention; the shared schema is the single source of
+   truth, used by both the API edge and the runner.)
 
 That's it. The service, controller, registry, evaluator, and UI all pick
 up the new provider automatically. Each new provider is a self-contained
@@ -174,45 +208,51 @@ module that knows only about its own data source.
 The rule engine is open to new leaf types without touching the engine
 itself. You only need to:
 
-1. **Extend the discriminated union** in `packages/shared/src/index.ts`:
+1. **Extend the `LeafConditionSchema` discriminated union** in
+   `packages/shared/src/schemas/automation.ts`. The runtime schema
+   is the single source of truth — both the engine's switch guard and
+   the API's `ZodValidationPipe` consume it.
 
    ```ts
-   export type LeafCondition =
-     | { type: 'rsi_above';       threshold: number; source: ConditionSource }
-     | { type: 'macd_above_zero'; macdThreshold: number; source: ConditionSource }
-     | /* ...existing variants */;
+   LeafConditionSchema = z.discriminatedUnion('type', [
+     /* …existing variants… */,
+     z.object({
+       type: z.literal('macd_above_zero'),
+       macdThreshold: z.number().finite(),
+       source: ConditionSourceSchema,
+     }).strict(),
+   ]);
    ```
 
 2. **Add a case to the evaluator's switch** in
    `apps/api/src/automation/rule-engine/condition.evaluator.ts`. The
-   exhaustiveness guard (`const _exhaustive: never = leaf`) will fail to
-   compile until you do:
+   exhaustiveness guard (`const _exhaustive: never = leaf`) will fail
+   to compile until you do:
 
    ```ts
    case 'macd_above_zero':
      return this.evalMacdAboveZero(leaf, ctx);
    ```
 
-3. **Add a validator case to `assertLeafShape`** in the same file. This
-   is what surfaces a 400 Bad Request when a malformed tree is posted
-   via the API. UI composers and the API never accept a silently
-   failing tree.
+   Validation is Zod-driven — the API edge already enforces the shape
+   via `ZodValidationPipe`. There's no separate hand-rolled
+   `assertLeafShape` to update.
 
-4. **Add the leaf to the UI summary** in
-   `apps/web/src/app/automation/page.tsx` (`conditionSummary`):
+3. **Add the leaf to the UI summary** in
+   `apps/web/src/components/automation/condition-editor.tsx`
+   (`conditionSummary`):
 
    ```ts
    case 'macd_above_zero':
      return `MACD > ${String(leaf.macdThreshold)}`;
    ```
 
-5. **Update the `LeafCondition` mirror type** in
-   `apps/web/src/lib/api.ts` so the UI's TypeScript types match the
-   shared contract.
+The UI's TypeScript types are inferred from the shared schema directly
+— no `LeafCondition` mirror type to keep in sync.
 
-That's it. The engine, registry, and persistence layer all pick up the
-new leaf automatically — no migration needed (the tree is
-JSON-serializable and lives in the existing `condition` Json column).
+That's it. The engine, API, and persistence layer all pick up the new
+leaf automatically — no migration needed (the tree is JSON-serializable
+and lives in the existing `condition` Json column).
 
 ## Why this shape
 
