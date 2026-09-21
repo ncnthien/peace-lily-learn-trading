@@ -34,3 +34,88 @@ export const TradeSchema = z
   .strict();
 
 export type Trade = z.infer<typeof TradeSchema>;
+
+// ============================================================
+// Trade history (NCN-23)
+// Filterable + paginated list view layered on top of Trade. Each
+// row carries a `realizedPnl` derived from the FIFO matcher:
+//   - `null`     → buy (open position) or unmatched sell
+//   - `number`   → sell that closed ≥ 1 unit against a buy lot
+// Pagination is cursor-based; the cursor is the last row's `id`.
+// =========================================================================
+
+/**
+ * Discriminator for the source filter:
+ *   `'manual'`                       → `automationItemId IS NULL`
+ *   `'automation'`                   → `automationItemId IS NOT NULL`
+ *   `<uuid>`                         → exact `automationItemId` match
+ *   `undefined`                      → no source filter (return all)
+ *
+ * Encoded as a plain string in the URL so existing NestJS query
+ * handling accepts both the literal `'manual'`/`'automation'` and
+ * any other string we treat as an item id.
+ */
+export const TradeSourceFilterSchema = z.string().min(1);
+export type TradeSourceFilter = z.infer<typeof TradeSourceFilterSchema>;
+
+export const TradeHistoryRowSchema = z
+  .object({
+    id: z.string().min(1),
+    accountId: z.string().min(1),
+    symbol: z.string().min(1),
+    side: TradeSideSchema,
+    price: z.number().finite().nonnegative(),
+    qty: z.number().finite().positive(),
+    fee: z.number().finite().nonnegative().optional(),
+    timestamp: z.string(),
+    /**
+     * Realized PnL for this fill, computed by re-running the FIFO
+     * matcher on the requested account's full ledger. `null` for
+     * buys (open position) and for sells that didn't close any unit
+     * (e.g. sold with no open position — the matcher drops them).
+     */
+    realizedPnl: z.number().nullable(),
+    /** Present iff the fill was triggered by an AutomationItem. */
+    automationItemId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const TradeHistoryPageSchema = z
+  .object({
+    /** Page of rows, ordered newest-first. */
+    items: z.array(TradeHistoryRowSchema),
+    /**
+     * Opaque cursor for the *next* page. `null` when no more rows
+     * exist. Clients send it back as the `cursor` query param.
+     */
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
+
+/** Input filter shape for the service-layer list method. */
+export const TradeListFiltersSchema = z
+  .object({
+    accountId: z.string().min(1).optional(),
+    /** Inclusive lower bound (UTC). */
+    from: z.string().datetime().optional(),
+    /** Exclusive upper bound (UTC). */
+    to: z.string().datetime().optional(),
+    /** 'manual' | 'automation' | an automationItemId */
+    source: TradeSourceFilterSchema.optional(),
+  })
+  .strict();
+
+export type TradeHistoryRow = z.infer<typeof TradeHistoryRowSchema>;
+export type TradeHistoryPage = z.infer<typeof TradeHistoryPageSchema>;
+export type TradeListFilters = z.infer<typeof TradeListFiltersSchema>;
+
+// ============================================================
+// Pagination sizing constants (NCN-23)
+// Source of truth lives in the controller, mirrored here so the
+// client can size its request without a separate config file.
+// =========================================================================
+
+/** Server default when the client omits `?limit=`. */
+export const TRADE_HISTORY_DEFAULT_LIMIT = 50;
+/** Hard cap; requests for more get clamped silently. */
+export const TRADE_HISTORY_MAX_LIMIT = 200;

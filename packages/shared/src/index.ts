@@ -36,6 +36,9 @@ export type {
   PlaceOrderInput,
   OrderEvent,
   Trade,
+  TradeHistoryRow,
+  TradeHistoryPage,
+  TradeListFilters,
   AutomationInput,
   ConditionSource,
   LeafCondition,
@@ -95,8 +98,18 @@ export {
   AccountTypeSchema,
   AccountStatusSchema,
   TradeSideSchema,
+  TradeHistoryRowSchema,
+  TradeHistoryPageSchema,
+  TradeListFiltersSchema,
   OrderStatusSchema,
 } from './schemas/index.js';
+
+// ============================================================
+// Pagination constants (NCN-23)
+// Mirrors of the controller-side defaults so client code can size
+// requests without duplicating constants.
+// ============================================================
+export { TRADE_HISTORY_DEFAULT_LIMIT, TRADE_HISTORY_MAX_LIMIT } from './schemas/index.js';
 
 export interface Candle {
   openTime: number;
