@@ -52,6 +52,8 @@ export type {
   RealizedPnlSummary,
   AutomationRun,
   RunOutcome,
+  UnrealizedPosition,
+  UnrealizedPnlSummary,
 } from './schemas/index.js';
 
 export {
@@ -81,6 +83,8 @@ export {
   RunOutcomeSchema,
   RUN_LOG_DEFAULT_LIMIT,
   RUN_LOG_MAX_LIMIT,
+  UnrealizedPositionSchema,
+  UnrealizedPnlSummarySchema,
   TimeframeSchema,
   AccountTypeSchema,
   AccountStatusSchema,
