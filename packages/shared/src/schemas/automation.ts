@@ -244,3 +244,42 @@ export type AutomationInput = z.infer<typeof AutomationInputSchema>;
 export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 export type AutomationOutput = z.infer<typeof AutomationOutputSchema>;
 export type TimeConfig = z.infer<typeof TimeConfigSchema>;
+
+// ============================================================
+// AutomationItem lifecycle (NCN-17)
+// ============================================================
+
+/**
+ * Outcome of a single runner tick against an AutomationItem.
+ * - `fired`   — condition held AND action was placed (or attempted).
+ * - `skipped` — condition didn't hold, or the action produced no order.
+ * - `error`   — provider / evaluator / executor threw. The runner
+ *               keeps going; the engine records the outcome and the
+ *               per-item consecutive-error counter ticks up.
+ */
+export const RunOutcomeSchema = z.enum(['fired', 'skipped', 'error']);
+export type RunOutcome = z.infer<typeof RunOutcomeSchema>;
+
+/**
+ * One row in the run history log. The engine writes one per tick per
+ * item (regardless of outcome). The web UI surfaces the last N entries
+ * per row so users can see "did this rule fire recently? what's it
+ * been doing?".
+ */
+export const AutomationRunSchema = z
+  .object({
+    id: z.string().min(1),
+    automationItemId: z.string().min(1),
+    outcome: RunOutcomeSchema,
+    /** Human-readable detail — error message, skip reason, etc. */
+    message: z.string().optional(),
+    /** Epoch ms — mirrors Trade.createdAt convention. */
+    ranAt: z.number().finite(),
+  })
+  .strict();
+export type AutomationRun = z.infer<typeof AutomationRunSchema>;
+
+/** Default page size for GET /automation/:id/runs */
+export const RUN_LOG_DEFAULT_LIMIT = 20;
+/** Hard ceiling for GET /automation/:id/runs */
+export const RUN_LOG_MAX_LIMIT = 100;

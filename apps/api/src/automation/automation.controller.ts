@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -56,5 +57,19 @@ export class AutomationController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.automation.remove(id);
+  }
+
+  /**
+   * GET /automation/:id/runs?limit=N
+   *
+   * Returns the most recent runs for an item, newest-first. Default
+   * limit is the shared `RUN_LOG_DEFAULT_LIMIT`; max is `RUN_LOG_MAX_LIMIT`.
+   */
+  @Get(':id/runs')
+  listRuns(
+    @Param('id') id: string,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+  ) {
+    return this.automation.listRuns(id, limit);
   }
 }

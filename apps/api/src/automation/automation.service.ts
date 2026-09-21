@@ -7,9 +7,14 @@ import type {
   AutomationInput,
   AutomationItem,
   AutomationItemStatus,
+  AutomationRun,
   ConditionNode,
   CreateAutomationInput,
   UpdateAutomationInput,
+} from '@workspace/shared';
+import {
+  RUN_LOG_DEFAULT_LIMIT,
+  RUN_LOG_MAX_LIMIT,
 } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
@@ -103,6 +108,37 @@ export class AutomationService {
       throw new NotFoundException(`AutomationItem ${id} not found`);
     }
     return { id };
+  }
+
+  /**
+   * Return the most recent N runs for an item, newest-first. Defaults to
+   * {@link RUN_LOG_DEFAULT_LIMIT}, capped at {@link RUN_LOG_MAX_LIMIT}.
+   * Throws NotFound if the item doesn't exist (so the UI can distinguish
+   * "no runs yet" from "no such item").
+   */
+  async listRuns(id: string, limit?: number): Promise<AutomationRun[]> {
+    const item = await this.prisma.automationItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (item === null) throw new NotFoundException(`AutomationItem ${id} not found`);
+
+    const effective = Math.min(
+      Math.max(1, limit ?? RUN_LOG_DEFAULT_LIMIT),
+      RUN_LOG_MAX_LIMIT,
+    );
+    const rows = await this.prisma.automationRun.findMany({
+      where: { automationItemId: id },
+      orderBy: { ranAt: 'desc' },
+      take: effective,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      automationItemId: r.automationItemId,
+      outcome: r.outcome as AutomationRun['outcome'],
+      ...(r.message !== null && r.message !== undefined ? { message: r.message } : {}),
+      ranAt: Number(r.ranAt),
+    }));
   }
 
   private validateInput(input: AutomationInput): AutomationInput {

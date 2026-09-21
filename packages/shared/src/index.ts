@@ -50,6 +50,8 @@ export type {
   ClosedLotMatch,
   RealizedPnlMatch,
   RealizedPnlSummary,
+  AutomationRun,
+  RunOutcome,
 } from './schemas/index.js';
 
 export {
@@ -75,6 +77,10 @@ export {
   ClosedLotMatchSchema,
   RealizedPnlMatchSchema,
   RealizedPnlSummarySchema,
+  AutomationRunSchema,
+  RunOutcomeSchema,
+  RUN_LOG_DEFAULT_LIMIT,
+  RUN_LOG_MAX_LIMIT,
   TimeframeSchema,
   AccountTypeSchema,
   AccountStatusSchema,
