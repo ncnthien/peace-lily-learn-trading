@@ -132,6 +132,34 @@ model AutomationItem {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   trades     Trade[]
+  runs       AutomationRun[]
+
+  // NCN-17: consecutive-error counter for auto-pause. Resets to 0 when
+  // a tick completes without an error, or when the user manually
+  // flips the item back to 'enabled'.
+  consecutiveErrors Int @default(0)
+}
+
+/// Per-tick execution record for an AutomationItem (NCN-17). One row
+/// per item per runner tick — written after evaluate/normalize/condition/
+/// action complete, regardless of outcome. Together with the
+/// consecutive-error counter on AutomationItem, this drives the
+/// "Run history log" + auto-pause-on-errors behaviors.
+model AutomationRun {
+  id              String         @id @default(uuid())
+  automationItemId String
+  automationItem   AutomationItem @relation(fields: [automationItemId], references: [id], onDelete: Cascade)
+  /// 'fired' | 'skipped' | 'error' — see shared RunOutcome
+  outcome         String
+  /// Free-form message: reason for skip / error stack excerpt / action
+  /// confirmation. Nullable when nothing notable happened.
+  message         String?
+  /// Epoch ms (mirrors Trade.createdAt convention). Indexed for the
+  /// "last N runs" query.
+  ranAt           BigInt
+  createdAt       DateTime       @default(now())
+
+  @@index([automationItemId, ranAt])
 }
 
 model SRLine {

@@ -6,6 +6,7 @@ import type {
   ConditionNode,
   EvalContext,
   NormalizedSignal,
+  RunOutcome,
 } from '@workspace/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ActionExecutor } from './action-executor.js';
@@ -13,21 +14,30 @@ import { ProviderRegistry } from './providers/provider.registry.js';
 import { ConditionEvaluator } from './rule-engine/condition.evaluator.js';
 
 /**
+ * Number of consecutive errors before an item is auto-paused. Reset to
+ * zero on any non-error tick (fired or skipped), and reset manually
+ * whenever the user flips the item back to 'enabled' from the UI.
+ */
+const AUTO_PAUSE_THRESHOLD = 3;
+
+/**
  * Runtime loop that turns AutomationItem rows into actual orders.
  *
  * Pipeline per tick (one minute):
- *   1. Load all enabled items whose input provider is registered
- *      (today: only `time`; future providers plug in here too).
+ *   1. Load all enabled items whose input provider is registered.
  *   2. For each: provider.evaluate → provider.normalize → EvalContext.
  *   3. ConditionEvaluator walks the item's condition tree against the
  *      EvalContext. If it holds, we execute the action via
- *      OrderExecution.placeOrder.
+ *      ActionExecutor (which dispatches to OrderExecution.placeOrder).
  *
- * NCN-13 scope: `time` only. The runner is the one tick path; new
- * provider kinds will reuse this loop with their own signals. When more
- * than one provider is in scope for a tick, this loop will collect
- * signals from each before evaluating the tree — the architecture
- * already supports it via EvalContext.signals.
+ * NCN-17 additions:
+ *   - One AutomationRun row is written per item per tick (regardless
+ *     of outcome).
+ *   - A per-item consecutive-error counter ticks up on error ticks and
+ *     resets on any non-error tick. Once it crosses AUTO_PAUSE_THRESHOLD,
+ *     the item is auto-paused (status flips to 'paused') so the runner
+ *     stops touching it on subsequent ticks. The user re-enables it
+ *     manually, which also resets the counter.
  */
 @Injectable()
 export class AutomationRunner {
@@ -63,12 +73,19 @@ export class AutomationRunner {
     for (const item of items) {
       try {
         const result = await this.runItem(item, now);
-        if (result === 'fired') summary.fired += 1;
-        else summary.skipped += 1;
+        await this.recordOutcome(item.id, result.outcome, result.message, now);
+        if (result.outcome === 'fired') summary.fired += 1;
+        else if (result.outcome === 'skipped') summary.skipped += 1;
+        else summary.errors += 1;
       } catch (err) {
         summary.errors += 1;
-        this.logger.error(
-          `Failed to run item ${String((item as { id: string }).id)}: ${String(err)}`,
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to run item ${item.id}: ${message}`);
+        // Record the error AND let the auto-pause counter see it. We
+        // swallow the recorder's failure too — losing a log row
+        // shouldn't take down the runner.
+        await this.recordOutcome(item.id, 'error', message, now).catch((e) =>
+          this.logger.error(`Failed to record run outcome: ${String(e)}`),
         );
       }
     }
@@ -80,24 +97,29 @@ export class AutomationRunner {
     return summary;
   }
 
+  /**
+   * Per-item run path. Returns a discriminated union so the caller can
+   * decide how to log / count. Throws propagate as before — the outer
+   * try/catch in `runOnce` records them as 'error'.
+   */
   private async runItem(
     row: ItemRow,
     now: number,
-  ): Promise<'fired' | 'skipped'> {
+  ): Promise<{ outcome: RunOutcome; message?: string }> {
     const input = row.input as AutomationInput;
     const provider = this.providers.get(input.kind);
     if (provider === undefined) {
-      // No provider registered for this kind — skip silently. Future
-      // providers will be registered before any item uses them.
-      return 'skipped';
+      return {
+        outcome: 'skipped',
+        message: `no provider registered for kind "${input.kind}"`,
+      };
     }
     const config = provider.validateConfig(input);
     const rawSignal = await provider.evaluate({ config, now, symbol: undefined, timeframe: undefined });
-    if (rawSignal === null) return 'skipped';
+    if (rawSignal === null) {
+      return { outcome: 'skipped', message: 'provider returned null' };
+    }
     const normalized = provider.normalize(rawSignal, { now });
-    // Providers can emit one signal (most) or many (multi-event sources
-    // like SRProvider with N zones). Flatten to a single array so the
-    // rule engine sees a uniform `signals: NormalizedSignal[]`.
     const signals: NormalizedSignal[] = Array.isArray(normalized)
       ? normalized
       : [normalized];
@@ -106,19 +128,72 @@ export class AutomationRunner {
       row.condition as ConditionNode,
       ctx,
     );
-    if (!holds) return 'skipped';
+    if (!holds) {
+      return { outcome: 'skipped', message: 'condition did not hold' };
+    }
     const action = row.action as AutomationAction;
     const result = await this.actionExecutor.execute(action, {
       accountId: row.accountId,
       automationItemId: row.id,
     });
     if (result.kind === 'no-order') {
-      this.logger.warn(
-        `Item ${row.id} action is not an order placement; ${result.reason}; skipping`,
-      );
-      return 'skipped';
+      return {
+        outcome: 'skipped',
+        message: `action "${action.kind}" produced no order`,
+      };
     }
-    return 'fired';
+    return { outcome: 'fired', message: `placed order ${result.order.id}` };
+  }
+
+  /**
+   * Append a row to the AutomationRun log and update the per-item
+   * consecutive-error counter. On error ticks, the counter ticks up;
+   * otherwise it resets to zero. When the counter crosses the auto-pause
+   * threshold, the item flips to 'paused' (and the counter is preserved,
+   * so the user sees the reason in the log).
+   */
+  private async recordOutcome(
+    itemId: string,
+    outcome: RunOutcome,
+    message: string | undefined,
+    ranAt: number,
+  ): Promise<void> {
+    await this.prisma.automationRun.create({
+      data: {
+        automationItemId: itemId,
+        outcome,
+        message: message ?? null,
+        ranAt: BigInt(ranAt),
+      },
+    });
+
+    if (outcome === 'error') {
+      // Atomic increment + auto-pause check.
+      const updated = await this.prisma.automationItem.update({
+        where: { id: itemId },
+        data: { consecutiveErrors: { increment: 1 } },
+        select: { id: true, consecutiveErrors: true, status: true, name: true },
+      });
+      if (
+        updated.status === 'enabled' &&
+        updated.consecutiveErrors >= AUTO_PAUSE_THRESHOLD
+      ) {
+        await this.prisma.automationItem.update({
+          where: { id: itemId },
+          data: { status: 'paused' },
+        });
+        this.logger.warn(
+          `Item ${itemId} auto-paused after ${updated.consecutiveErrors} consecutive errors`,
+        );
+      }
+    } else {
+      // Reset the counter on any non-error tick so a transient blip
+      // doesn't keep accumulating.
+      await this.prisma.automationItem.updateMany({
+        where: { id: itemId, consecutiveErrors: { gt: 0 } },
+        data: { consecutiveErrors: 0 },
+      });
+    }
   }
 }
 

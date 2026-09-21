@@ -18,10 +18,61 @@ interface ItemRow {
   status: string;
 }
 
+/**
+ * Apply a Prisma `data` payload to an in-memory row. Handles the small
+ * subset of Prisma update operators we actually use: plain value sets
+ * and `{ increment: n }` on numeric fields. Everything else is set
+ * verbatim via Object.assign semantics.
+ */
+function applyDataUpdate(row: Record<string, unknown>, data: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(data)) {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      'increment' in (value as Record<string, unknown>) &&
+      typeof (value as { increment: unknown }).increment === 'number'
+    ) {
+      const current = (row[key] as number | undefined) ?? 0;
+      row[key] = current + (value as { increment: number }).increment;
+    } else {
+      row[key] = value;
+    }
+  }
+}
+
 function makePrismaMock(rows: ItemRow[]) {
+  const records: { updates: unknown[]; upserts: unknown[] } = { updates: [], upserts: [] };
+  const runRows: unknown[] = [];
   return {
+    records,
+    runRows,
     automationItem: {
       findMany: vi.fn(async () => rows.filter((r) => r.status === 'enabled')),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        return rows.find((r) => r.id === where.id) ?? null;
+      }),
+      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        records.updates.push({ id: where.id, data });
+        const row = rows.find((r) => r.id === where.id);
+        if (row === undefined) throw new Error(`no row ${where.id}`);
+        applyDataUpdate(row as unknown as Record<string, unknown>, data);
+        return row;
+      }),
+      updateMany: vi.fn(
+        async ({ where, data }: { where: { id: string; consecutiveErrors?: { gt: number } }; data: Record<string, unknown> }) => {
+          records.updates.push({ id: where.id, data });
+          const row = rows.find((r) => r.id === where.id);
+          if (row !== undefined) applyDataUpdate(row as unknown as Record<string, unknown>, data);
+          return { count: row !== undefined ? 1 : 0 };
+        },
+      ),
+    },
+    automationRun: {
+      create: vi.fn(async ({ data }: { data: unknown }) => {
+        runRows.push(data);
+        return data;
+      }),
+      findMany: vi.fn(async () => runRows.slice().reverse()),
     },
   };
 }
@@ -394,4 +445,151 @@ describe('AutomationRunner', () => {
     expect(summary.skipped).toBe(1);
     expect(summary.fired).toBe(0);
   });
-});
+
+  // ============================================================
+  // NCN-17: Run history log + auto-pause on consecutive errors
+  // ============================================================
+
+  it('writes a "fired" run entry when an item successfully places an order', async () => {
+    prisma = makePrismaMock([makeRow()]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    await runner.runOnce(now);
+    expect(prisma.runRows.length).toBe(1);
+    const row = prisma.runRows[0] as { outcome: string; message: string | null; ranAt: bigint };
+    expect(row.outcome).toBe('fired');
+    expect(row.message).toMatch(/placed order/);
+    expect(Number(row.ranAt)).toBe(now);
+  });
+
+  it('writes a "skipped" run entry with reason when the condition does not hold', async () => {
+    prisma = makePrismaMock([
+      makeRow({
+        condition: {
+          type: 'wave_phase_not',
+          phase: 'forming',
+          source: { providerKind: 'time' },
+        },
+      }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.skipped).toBe(1);
+    expect(prisma.runRows.length).toBe(1);
+    const row = prisma.runRows[0] as { outcome: string; message: string | null };
+    expect(row.outcome).toBe('skipped');
+    expect(row.message).toMatch(/condition did not hold/);
+  });
+
+  it('writes an "error" run entry when the item throws', async () => {
+    // An invalid cron makes TimeProvider.validateConfig throw — the
+    // runner's try/catch sees the throw as an 'error' outcome.
+    prisma = makePrismaMock([
+      makeRow({ input: { kind: 'time', cron: '' } }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    const summary = await runner.runOnce(now);
+    expect(summary.errors).toBe(1);
+    expect(prisma.runRows.length).toBe(1);
+    const row = prisma.runRows[0] as { outcome: string; message: string | null };
+    expect(row.outcome).toBe('error');
+    expect(row.message).toBeTruthy();
+  });
+
+  it('increments the consecutive-error counter on each error tick', async () => {
+    prisma = makePrismaMock([
+      makeRow({ id: 'item-flaky', input: { kind: 'time', cron: '' } }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    await runner.runOnce(now);
+    const updates = (prisma.records as { updates: { id: string; data: Record<string, unknown> }[] }).updates;
+    const inc1 = updates.filter((u) => u.id === 'item-flaky' && u.data.consecutiveErrors !== undefined);
+    expect(inc1.length).toBe(1);
+    expect(inc1[0]!.data.consecutiveErrors).toEqual({ increment: 1 });
+  });
+
+  it('resets the consecutive-error counter to 0 on any non-error tick', async () => {
+    prisma = makePrismaMock([makeRow({ id: 'item-recover' })]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const now = Math.floor(Date.now() / 60_000) * 60_000;
+    await runner.runOnce(now);
+    const updates = (prisma.records as { updates: { id: string; data: Record<string, unknown> }[] }).updates;
+    const resets = updates.filter(
+      (u) => u.id === 'item-recover' && u.data.consecutiveErrors === 0,
+    );
+    expect(resets.length).toBe(1);
+  });
+
+  it('auto-pauses an item after 3 consecutive errors', async () => {
+    prisma = makePrismaMock([
+      makeRow({ id: 'item-pause', input: { kind: 'time', cron: '' } }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const base = Math.floor(Date.now() / 60_000) * 60_000;
+    await runner.runOnce(base);
+    await runner.runOnce(base + 60_000);
+    await runner.runOnce(base + 120_000);
+    const updates = (prisma.records as { updates: { id: string; data: Record<string, unknown> }[] }).updates;
+    const pauseUpdate = updates.find(
+      (u) => u.id === 'item-pause' && (u.data.status as string) === 'paused',
+    );
+    expect(pauseUpdate).toBeDefined();
+  });
+
+  it('skips paused items on subsequent ticks (the findMany filter excludes them)', async () => {
+    // After 3 errors, the item is paused. The runner's `findMany({ status: 'enabled' })`
+    // won't include it, so no run rows are written for the 4th tick.
+    prisma = makePrismaMock([
+      makeRow({ id: 'item-paused', input: { kind: 'time', cron: '' } }),
+    ]);
+    runner = new AutomationRunner(
+      prisma as unknown as ConstructorParameters<typeof AutomationRunner>[0],
+      registry,
+      evaluator,
+      actionExecutor,
+    );
+    const base = Math.floor(Date.now() / 60_000) * 60_000;
+    // 3 error ticks → item pauses after the 3rd.
+    await runner.runOnce(base);
+    await runner.runOnce(base + 60_000);
+    await runner.runOnce(base + 120_000);
+    const rowsAfter3 = prisma.runRows.length;
+    // Now the in-memory row's status is 'paused', so findMany won't
+    // include it. Run a 4th tick.
+    await runner.runOnce(base + 180_000);
+    expect(prisma.runRows.length).toBe(rowsAfter3);
+  });
+}); // closes the top-level AutomationRunner describe
