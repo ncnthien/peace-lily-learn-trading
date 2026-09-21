@@ -54,6 +54,9 @@ export type {
   RunOutcome,
   UnrealizedPosition,
   UnrealizedPnlSummary,
+  PnlBucket,
+  PnlBucketPoint,
+  AccountDashboard,
 } from './schemas/index.js';
 
 export {
@@ -85,6 +88,9 @@ export {
   RUN_LOG_MAX_LIMIT,
   UnrealizedPositionSchema,
   UnrealizedPnlSummarySchema,
+  PnlBucketSchema,
+  PnlBucketPointSchema,
+  AccountDashboardSchema,
   TimeframeSchema,
   AccountTypeSchema,
   AccountStatusSchema,

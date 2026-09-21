@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type {
+  PnlBucket,
+  PnlBucketPoint,
   RealizedPnlMatch,
   RealizedPnlSummary,
   UnrealizedPnlSummary,
@@ -10,6 +12,7 @@ import {
   MARKET_DATA_SOURCE,
   type MarketDataSource,
 } from '../market-data/market-data.types.js';
+import { bucketRealizedPnl } from './bucket.js';
 import { matchRealizedPnl } from './fifo.js';
 import { computeOpenPositions } from './unrealized.js';
 
@@ -114,6 +117,19 @@ export class PnlService {
       perSymbol[position.symbol] = (perSymbol[position.symbol] ?? 0) + position.unrealizedPnl;
     }
     return { accountId, totalUnrealizedPnl, perSymbol, positions };
+  }
+
+  /**
+   * Bucketed realized-PnL time series for the dashboard chart
+   * (NCN-22). Reuses the FIFO matcher so the series stays consistent
+   * with `/pnl/realized` totals — there is no second source of truth.
+   * Sparse output: only buckets that contain at least one match are
+   * returned.
+   */
+  async getPnlSeries(accountId: string, bucket: PnlBucket): Promise<PnlBucketPoint[]> {
+    const trades = await this.loadTrades(accountId);
+    const matches = matchRealizedPnl(trades, { logger: this });
+    return bucketRealizedPnl(matches, bucket);
   }
 
   /**
